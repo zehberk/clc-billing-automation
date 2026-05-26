@@ -1,0 +1,19 @@
+{
+	"author": "Zachary Berk",
+	"manifest_version": 3,
+	"name": "CLC Billing Automation",
+	"version": "0.1",
+	"description": "Automates invoice processing from TherapyNotes to QuickBooks",
+	"permissions": ["storage"],
+	"host_permissions": ["*://*.therapynotes.com/*"],
+	"content_scripts": [
+		{
+			"matches": ["*://*.therapynotes.com/*"],
+			"js": ["main.js"],
+			"type": "module"
+		}
+	],
+	"icons": {		
+		"128": "icons/icon128.png"
+	}
+}

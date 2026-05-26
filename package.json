@@ -1,0 +1,12 @@
+{
+	"name": "era-extension",
+	"version": "1.0.0",
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"watch": "vite build --watch"
+	},
+	"devDependencies": {
+		"vite": "^7.0.6"
+	}
+}
