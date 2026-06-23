@@ -1,12 +1,16 @@
 {
 	"name": "era-extension",
-	"version": "1.1.0",
+	"version": "1.1.0-build.1",
 	"type": "module",
 	"scripts": {
-		"build": "vite build",
+		"build": "node scripts/bump-version.mjs build && npm run build:dist",
+		"build:dist": "vite build && node scripts/zip-dist.mjs",
+		"major": "node scripts/bump-version.mjs major && npm run build:dist",
+		"minor": "node scripts/bump-version.mjs minor && npm run build:dist",
+		"patch": "node scripts/bump-version.mjs patch && npm run build:dist",
 		"watch": "vite build --watch"
 	},
 	"devDependencies": {
-		"vite": "^7.0.6"
+		"vite": "^7.3.5"
 	}
 }
