@@ -20,6 +20,14 @@ export function getInvoiceItemData(payerName) {
 
 /**
  * @param {string | null | undefined} payerName
+ */
+export function isInvoiceItemTaxable(payerName) {
+	const match = getInvoiceItemData(payerName);
+	return match?.taxable === true;
+}
+
+/**
+ * @param {string | null | undefined} payerName
  * @param {string | null} locationTag
  */
 export function formatInvoiceItem(payerName, locationTag) {

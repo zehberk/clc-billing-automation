@@ -53,13 +53,14 @@ loadCsvWithCache(SF_THERAPISTS_URL, STORAGE_KEYS.SF_THERAPISTS, (rows) => {
 }, sfTherapistsLoaded);
 
 loadCsvWithCache(INVOICE_ITEMS_URL, STORAGE_KEYS.INVOICE_ITEMS, (rows) => {
-	/** @type {{ [payer: string]: { item: string, memo?: string } }} */
+	/** @type {{ [payer: string]: { item: string, memo?: string, taxable?: boolean } }} */
 	const parsed = {};
 	for (const r of rows) {
 		const payer = r["primary payer"];
 		const item = r["invoice item"];
 		const memo = r["check memo"];
-		if (payer && item) parsed[payer] = { item, memo };
+		const taxable = parseBooleanFlag(r["taxable"]);
+		if (payer && item) parsed[payer] = { item, memo, taxable };
 	}
 	setInvoiceItems(parsed);
 }, invoiceItemsLoaded);
@@ -134,4 +135,12 @@ export async function loadCsvWithCache(url, cacheKey, parseFn, resolveFn) {
 		console.error(`Failed to load ${cacheKey}:`, err);
 	}
 	resolveFn();
+}
+
+/**
+ * @param {string | undefined} value
+ */
+function parseBooleanFlag(value) {
+	if (!value) return false;
+	return ["true", "yes", "y", "1", "x"].includes(value.trim().toLowerCase());
 }

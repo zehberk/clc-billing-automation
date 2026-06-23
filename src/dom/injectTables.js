@@ -1,6 +1,6 @@
 import { therapistNameCache, USE_SECONDARY_PAYER  } from "../data/constants.js";
 import { resolveTherapistName, parseAllocation } from "../logic/rowUtils.js";
-import { normalizePayerName, formatInvoiceItem, resolveCheckMemo } from "../logic/invoiceUtils.js";
+import { normalizePayerName, formatInvoiceItem, resolveCheckMemo, isInvoiceItemTaxable } from "../logic/invoiceUtils.js";
 import { calculatePaymentBeforeTax } from "../logic/taxUtils.js";
 import { getPaymentField } from "../logic/paymentFields.js";
 
@@ -93,8 +93,8 @@ export async function injectPaymentSummary() {
 		const effective = resolveEffectivePayer(primary, secondary, pageLevelPayer, transactionId, lastPayer);
 		if (effective) lastPayer = effective;
 
-		// Only prefetch therapist names for Centennial since we need locationTag
-		if (/centennial/i.test(effective)) {
+		// Prefetch therapist names only when the invoice item needs location-based tax logic
+		if (isInvoiceItemTaxable(effective)) {
 			const href = row.children[6]?.querySelector("a")?.getAttribute("href");
 			if (href && !therapistNameCache.hasOwnProperty(href)) {
 				fetchPromises.push(
@@ -123,15 +123,15 @@ export async function injectPaymentSummary() {
 		const allocation = parseAllocation(row);
 		if (!allocation) continue;
 
-		// Resolve therapist (prefetched if Centennial)
+		// Resolve therapist only for taxable invoice items that need a location tag
 		let fullName = resolveTherapistName(row, lastTherapist);
 		if (fullName) lastTherapist = fullName;
 
-		// Tax/location calc (this sets locationTag based on therapist/payer rules)
+		// Tax/location calc (this sets locationTag based on the invoice item's taxable flag)
 		let { adjustedRate, locationTag, taxRate } =
 			calculatePaymentBeforeTax(allocation, fullName, payerName);
 
-		// Group key (keeps Centennial rows together by location)
+		// Group key keeps taxable rows together by location
 		const itemKey = formatInvoiceItem(payerName, locationTag);
 
 		entries.push({

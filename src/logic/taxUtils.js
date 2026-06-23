@@ -5,6 +5,7 @@ import {
 	getUseMedicareOverride,
 	getUseGehaOverride
 } from "../data/constants.js";
+import { isInvoiceItemTaxable } from "./invoiceUtils.js";
 
 /** @param {string | null | undefined} fullName */
 export function getTherapistLocation(fullName) {
@@ -40,9 +41,9 @@ export function calculatePaymentBeforeTax(allocation, fullName, payerName) {
 	
 	let locationTag = null;
 	let taxRate = null;	
-	const isCentennial = payerName?.toLowerCase().includes("centennial");
+	const isTaxable = isInvoiceItemTaxable(payerName);
 
-	if (isCentennial) {
+	if (isTaxable) {
 		locationTag = getTherapistLocation(fullName);
 		taxRate = locationTag === "Santa Fe" ? SANTA_FE_TAX_RATE : LAS_CRUCES_TAX_RATE;
 	}

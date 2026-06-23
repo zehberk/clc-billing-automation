@@ -1,4 +1,4 @@
-/** @typedef {{ item: string, memo?: string }} InvoiceItemData */
+/** @typedef {{ item: string, memo?: string, taxable?: boolean }} InvoiceItemData */
 /** @typedef {{ [payer: string]: InvoiceItemData }} InvoiceItemMap */
 
 export const TAX_RATES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=0&single=true&output=csv";
