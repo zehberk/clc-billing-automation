@@ -1,4 +1,12 @@
 // Entry point (content script)
+console.log("[CLC] content script boot", window.location.href);
+markContentScriptBoot();
+
+function markContentScriptBoot() {
+	if (!document.documentElement) return;
+	const frameType = window.top === window ? "top" : "frame";
+	document.documentElement.setAttribute("data-clc-content-script", frameType);
+}
 
 // ERA highlight style injection
 (function addEraHighlightStyles() {
@@ -45,6 +53,51 @@ import { injectPaymentVerifier } from "./src/dom/verification.js";
 import { getEraPayerByHref, normalizeHref } from "./src/logic/hrefUtils.js";
 import { getPaymentField } from "./src/logic/paymentFields.js";
 import { waitForElement, attachEraClickHandlers } from "./src/dom/observers.js";
+import { autoSelectInvoiceCustomer } from "./src/dom/invoiceCustomer.js";
+import { initEraExportTest } from "./src/logic/eraExportTest.js";
+
+// startInvoiceAutoSelectWatcher();
+initEraExportTest();
+
+function startInvoiceAutoSelectWatcher() {
+	let lastHref = "";
+
+	const run = () => {
+		const currentHref = window.location.href;
+		if (currentHref === lastHref) return;
+		lastHref = currentHref;
+		autoSelectInvoiceCustomer();
+	};
+
+	// Initial run.
+	run();
+
+	// Handle client-side route changes.
+	const originalPushState = history.pushState;
+	history.pushState = function (...args) {
+		originalPushState.apply(this, args);
+		run();
+	};
+
+	const originalReplaceState = history.replaceState;
+	history.replaceState = function (...args) {
+		originalReplaceState.apply(this, args);
+		run();
+	};
+
+	window.addEventListener("popstate", run);
+
+	// Fallback: many QBO screens render after route update.
+	const startDomObserver = () => {
+		if (!document.body) {
+			requestAnimationFrame(startDomObserver);
+			return;
+		}
+		const observer = new MutationObserver(run);
+		observer.observe(document.body, { childList: true, subtree: true });
+	};
+	startDomObserver();
+}
 
 waitForElement("#BillingTransactionsTableList", () => {
 	injectSharedStyles();

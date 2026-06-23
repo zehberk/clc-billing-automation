@@ -7,10 +7,11 @@ export default defineConfig({
 		outDir: "dist",
 		rollupOptions: {
 			input: {
-				main: resolve(__dirname, "main.js")
+				main: resolve(__dirname, "main.js"),
+				background: resolve(__dirname, "background.js")
 			},
 			output: {
-				entryFileNames: "main.js"
+				entryFileNames: "[name].js"
 			}
 		},
 		sourcemap: true
