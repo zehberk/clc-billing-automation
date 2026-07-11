@@ -7,6 +7,15 @@ export const INVOICE_ITEMS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX
 
 export const EXCLUDED_PAYERS = new Set(["PGBA,LLC", "Carelon Behavioral Health, Inc."]);
 
+// Taxable QBO items and the non-taxable item used for penny adjustments.
+// These pairs come from TherapyNotes Visual Tool.xlsx in the project root.
+export const NON_TAXABLE_ITEM_BY_TAXABLE_ITEM = new Map([
+	["Blue Cross Centenial", "Blue Cross Managed Care"],
+	["Presbyterian Centennial", "Presbyterian Managed Care"],
+	["Molina Medicaid", "Molina Managed Care"],
+	["United Healthcare", "United Healthcare"]
+]);
+
 export const USE_SECONDARY_PAYER = new Set([
 	"NM Medicare Part B J4 ATTN: CLAIMS",
 	"NM Medicare Part B"

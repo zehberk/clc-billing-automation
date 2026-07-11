@@ -55,3 +55,56 @@ export function calculatePaymentBeforeTax(allocation, fullName, payerName) {
 	return { adjustedRate, locationTag, taxRate };
 }
 
+/**
+ * Find the cent-rounded taxable line amount whose QBO-calculated gross is
+ * closest to the desired TherapyNotes gross amount.
+ *
+ * @param {number} grossAmount
+ * @param {number} taxRate
+ */
+export function calculateQboTaxableLine(grossAmount, taxRate) {
+	const grossCents = Math.round(grossAmount * 100);
+	if (!taxRate) {
+		return {
+			taxableAmount: grossCents / 100,
+			taxAmount: 0,
+			qboGrossAmount: grossCents / 100,
+			roundingAdjustment: 0
+		};
+	}
+
+	const estimatedTaxableCents = Math.round(grossCents / (1 + taxRate));
+	let best = null;
+
+	for (let offset = -3; offset <= 3; offset += 1) {
+		const taxableCents = estimatedTaxableCents + offset;
+		const taxCents = Math.round(taxableCents * taxRate);
+		const qboGrossCents = taxableCents + taxCents;
+		const differenceCents = grossCents - qboGrossCents;
+		const candidate = {
+			taxableCents,
+			taxCents,
+			qboGrossCents,
+			differenceCents
+		};
+
+		if (
+			best == null ||
+			Math.abs(candidate.differenceCents) < Math.abs(best.differenceCents) ||
+			(
+				Math.abs(candidate.differenceCents) === Math.abs(best.differenceCents) &&
+				Math.abs(offset) < Math.abs(best.offset)
+			)
+		) {
+			best = { ...candidate, offset };
+		}
+	}
+
+	return {
+		taxableAmount: best.taxableCents / 100,
+		taxAmount: best.taxCents / 100,
+		qboGrossAmount: best.qboGrossCents / 100,
+		roundingAdjustment: best.differenceCents / 100
+	};
+}
+

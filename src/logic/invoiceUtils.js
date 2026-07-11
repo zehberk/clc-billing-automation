@@ -1,5 +1,6 @@
 import { 
 	PAYER_TO_INVOICE_ITEM_DATA,
+	NON_TAXABLE_ITEM_BY_TAXABLE_ITEM,
 	getUseMedicareOverride,
 	getUseGehaOverride
 } from "../data/constants.js";
@@ -24,6 +25,12 @@ export function getInvoiceItemData(payerName) {
 export function isInvoiceItemTaxable(payerName) {
 	const match = getInvoiceItemData(payerName);
 	return match?.taxable === true;
+}
+
+/** @param {string | null | undefined} payerName */
+export function getNonTaxableInvoiceItem(payerName) {
+	const taxableItem = getInvoiceItemData(payerName)?.item;
+	return taxableItem ? NON_TAXABLE_ITEM_BY_TAXABLE_ITEM.get(taxableItem) : undefined;
 }
 
 /**

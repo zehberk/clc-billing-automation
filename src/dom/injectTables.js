@@ -1,11 +1,11 @@
 import { therapistNameCache, USE_SECONDARY_PAYER  } from "../data/constants.js";
 import { resolveTherapistName, parseAllocation } from "../logic/rowUtils.js";
-import { normalizePayerName, formatInvoiceItem, resolveCheckMemo, isInvoiceItemTaxable } from "../logic/invoiceUtils.js";
-import { calculatePaymentBeforeTax } from "../logic/taxUtils.js";
+import { normalizePayerName, formatInvoiceItem, resolveCheckMemo, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
+import { calculatePaymentBeforeTax, calculateQboTaxableLine } from "../logic/taxUtils.js";
 import { getPaymentField } from "../logic/paymentFields.js";
 
 /** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, payerName: string, locationTag: string | null }} SummaryEntry */
-/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, payerName: string }} ItemTotal */
+/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, payerName: string, invoiceItem?: string, roundingFor?: string }} ItemTotal */
 /** @typedef {{ [itemKey: string]: ItemTotal }} ItemTotalsMap */
 
 /** @param {string | null | undefined} primary */
@@ -164,15 +164,37 @@ export async function injectPaymentSummary() {
 		itemTotalsMap[itemKey].taxRate = taxRate;
 	}
 
+	// QBO calculates tax from the cent-rounded, aggregated taxable line. Match
+	// that behavior and use a separate untaxed line for any remaining penny.
+	for (const [itemKey, itemTotal] of Object.entries(itemTotalsMap)) {
+		if (itemTotal.taxRate == null) continue;
+
+		const result = calculateQboTaxableLine(itemTotal.totalAllocation, itemTotal.taxRate);
+		itemTotal.invoiceRate = result.taxableAmount;
+		itemTotal.totalAllocation = result.qboGrossAmount;
+
+		if (result.roundingAdjustment !== 0) {
+			const roundingKey = `Tax Rounding Adjustment — ${itemKey}`;
+			itemTotalsMap[roundingKey] = {
+				totalAllocation: result.roundingAdjustment,
+				invoiceRate: result.roundingAdjustment,
+				taxRate: null,
+				payerName: itemTotal.payerName,
+				invoiceItem: getNonTaxableInvoiceItem(itemTotal.payerName) ?? `${itemKey} — NON-TAXABLE ITEM REQUIRED`,
+				roundingFor: itemKey
+			};
+		}
+	}
+
 	// -------- Adjustments --------
 	const adjustmentTotal = getAdjustmentTotal();
 	if (adjustmentTotal !== 0) {
 		// When the payment already has a non-taxable item, the adjustment belongs
 		// to that company/item. Otherwise create a separate untaxed payer item so
 		// taxable allocations remain untouched.
-		let adjustmentItem = Object.values(itemTotalsMap).find(
-			data => data.taxRate == null
-		);
+		let adjustmentItem = Object.entries(itemTotalsMap).find(
+			([, data]) => data.taxRate == null && data.roundingFor == null
+		)?.[1];
 
 		if (!adjustmentItem) {
 			const adjustmentPayer = pageLevelPayer || lastPayer || "Payment Adjustment";
@@ -195,11 +217,16 @@ export async function injectPaymentSummary() {
 	summaryTable.id = "QuickBooksSummaryTable";
 	summaryTable.className = "qb-summary-table";
 
-	const sortedEntries = Object.entries(itemTotalsMap).sort(([a], [b]) => a.localeCompare(b));
+	const sortedEntries = Object.entries(itemTotalsMap).sort(([aKey, a], [bKey, b]) => {
+		const anchorComparison = (a.roundingFor ?? aKey).localeCompare(b.roundingFor ?? bKey);
+		if (anchorComparison !== 0) return anchorComparison;
+		return Number(a.roundingFor != null) - Number(b.roundingFor != null);
+	});
 
 	let bodyRows = "";
-	for (const [item, data] of sortedEntries) {
+	for (const [itemKey, data] of sortedEntries) {
 		const { totalAllocation, invoiceRate, taxRate, payerName } = data;
+		const item = data.invoiceItem ?? itemKey;
 		const checknum = resolveCheckMemo(payerName, transactionId);
 
 		bodyRows += `
