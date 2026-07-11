@@ -1,5 +1,6 @@
 import { normalizeHref } from "./hrefUtils.js";
 import { EXCLUDED_PAYERS } from "../data/constants.js";
+import { mapInvoiceItemToQbo } from "./invoiceUtils.js";
 
 const STORAGE_KEY = "clc-era-export-test-state-v2";
 const LOG_PREFIX = "[CLC][ERA Export Test]";
@@ -7,7 +8,7 @@ const SUMMARY_TIMEOUT_MS = 45000;
 
 /**
  * @typedef {{ eraNumber: string, received: string, payer: string, href: string }} EraEntry
- * @typedef {{ eraNumber?: string, invoiceItem: string, totalAllocation: string, invoiceRate: string, taxRate: string, checkMemo: string }} SummaryRow
+ * @typedef {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, isTaxRounding?: boolean, invoiceItem: string, totalAllocation: string, invoiceRate: string, taxRate: string, checkMemo: string }} SummaryRow
  * @typedef {{
  *  mode: "single-era-test",
  *  runId: string,
@@ -72,7 +73,7 @@ function injectTestButton() {
 	const button = document.createElement("button");
 	button.id = "clc-era-export-test-btn";
 	button.type = "button";
-	button.textContent = "Test All ERAs (One by One)";
+	button.textContent = "Collect ERA Payments";
 	Object.assign(button.style, {
 		position: "fixed",
 		right: "16px",
@@ -301,10 +302,13 @@ function waitForSummaryTable() {
  * @returns {SummaryRow[]}
  */
 function extractSummaryRows(table) {
-	const rows = Array.from(table.querySelectorAll("tbody tr"));
+	const rows = /** @type {HTMLTableRowElement[]} */ (
+		Array.from(table.querySelectorAll("tbody tr"))
+	);
 	return rows.map(row => {
 		const cells = row.querySelectorAll("td");
 		return {
+			isTaxRounding: row.dataset.clcTaxRounding === "true",
 			invoiceItem: cells?.[0]?.textContent?.trim() ?? "",
 			totalAllocation: cells?.[1]?.textContent?.trim() ?? "",
 			taxRate: cells?.[2]?.textContent?.trim() ?? "",
@@ -326,7 +330,9 @@ function onStorageChanged(event) {
 	if (state.status === "era-done") {
 		const eraRows = state.eraRows ?? [];
 		const eraNumber = state.era?.eraNumber ?? "";
-		const appendedRows = eraRows.map(row => ({ ...row, eraNumber }));
+		const invoiceDate = state.era?.received ?? "";
+		const eraIndex = state.currentIndex ?? 0;
+		const appendedRows = eraRows.map(row => ({ ...row, eraNumber, invoiceDate, eraIndex }));
 		advanceToNextEra(state, appendedRows);
 		return;
 	}
@@ -336,6 +342,8 @@ function onStorageChanged(event) {
 		const reason = state.skipReason || "Skipped due to warning/error.";
 		const noteRow = {
 			eraNumber,
+			invoiceDate: state.era?.received ?? "",
+			eraIndex: state.currentIndex ?? 0,
 			invoiceItem: "[SKIPPED]",
 			totalAllocation: "",
 			invoiceRate: "",
@@ -357,13 +365,107 @@ function onStorageChanged(event) {
  * @param {ExportState} state
  */
 function showResultsPopup(state) {
-	const rows = state.results ?? state.rows ?? [];
+	const rows = (state.results ?? state.rows ?? []).filter(row => row.invoiceItem !== "[SKIPPED]");
 	if (rows.length === 0) {
 		showPopup("No rows were found in QuickBooks Payment Entry.");
 		return;
 	}
 
-	showResultsTablePopup(state);
+	showInvoiceNumberPopup(rows);
+}
+
+/** @param {SummaryRow[]} rows */
+function showInvoiceNumberPopup(rows) {
+	const existing = document.getElementById("clc-era-export-test-popup");
+	if (existing) existing.remove();
+
+	const wrap = document.createElement("div");
+	wrap.id = "clc-era-export-test-popup";
+	Object.assign(wrap.style, {
+		position: "fixed",
+		right: "16px",
+		bottom: "64px",
+		width: "460px",
+		zIndex: "100000",
+		background: "#fff",
+		color: "#111",
+		border: "1px solid #888",
+		borderRadius: "8px",
+		padding: "12px",
+		boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+		fontFamily: "ui-sans-serif, system-ui, sans-serif",
+		fontSize: "13px",
+		lineHeight: "1.4"
+	});
+
+	const close = document.createElement("button");
+	close.type = "button";
+	close.textContent = "Close";
+	Object.assign(close.style, { float: "right", cursor: "pointer" });
+	close.addEventListener("click", () => wrap.remove());
+
+	const form = document.createElement("form");
+	form.style.clear = "both";
+
+	const label = document.createElement("label");
+	label.htmlFor = "clc-starting-invoice-number";
+	label.textContent = `Enter the first QBO invoice number for ${rows.length} collected line${rows.length === 1 ? "" : "s"}:`;
+	label.style.display = "block";
+	label.style.marginBottom = "6px";
+
+	const input = document.createElement("input");
+	input.id = "clc-starting-invoice-number";
+	input.type = "text";
+	input.inputMode = "numeric";
+	input.autocomplete = "off";
+	input.placeholder = "Example: 1001";
+	Object.assign(input.style, {
+		boxSizing: "border-box",
+		width: "100%",
+		padding: "8px",
+		border: "1px solid #999",
+		borderRadius: "4px"
+	});
+
+	const error = document.createElement("div");
+	Object.assign(error.style, {
+		minHeight: "18px",
+		marginTop: "4px",
+		color: "#b42318"
+	});
+
+	const submit = document.createElement("button");
+	submit.type = "submit";
+	submit.textContent = "Create CSV";
+	Object.assign(submit.style, {
+		padding: "8px 12px",
+		background: "#1f84d1",
+		color: "#fff",
+		border: "1px solid #1b6aa8",
+		borderRadius: "6px",
+		cursor: "pointer",
+		fontWeight: "600"
+	});
+
+	form.addEventListener("submit", event => {
+		event.preventDefault();
+		const startingInvoiceNumber = input.value.trim();
+		if (!/^\d+$/.test(startingInvoiceNumber)) {
+			error.textContent = "The starting invoice number must contain digits only.";
+			input.focus();
+			return;
+		}
+		showCsvDownloadPopup(rows, startingInvoiceNumber);
+	});
+
+	form.appendChild(label);
+	form.appendChild(input);
+	form.appendChild(error);
+	form.appendChild(submit);
+	wrap.appendChild(close);
+	wrap.appendChild(form);
+	document.body.appendChild(wrap);
+	input.focus();
 }
 
 /**
@@ -413,12 +515,22 @@ function showPopup(text) {
 	document.body.appendChild(wrap);
 }
 
+const QBO_CSV_HEADERS = [
+	"*InvoiceNo", "*Customer", "*InvoiceDate", "*DueDate", "Terms", "Location", "Memo",
+	"Item(Product/Service)", "ItemDescription", "ItemQuantity", "ItemRate", "*ItemAmount",
+	"Taxable", "TaxRate", "Shipping address", "Ship via", "Shipping date", "Tracking no",
+	"Shipping Charge", "Service Date"
+];
+
 /**
- * @param {ExportState} state
+ * @param {SummaryRow[]} rows
+ * @param {string} startingInvoiceNumber
  */
-function showResultsTablePopup(state) {
+function showCsvDownloadPopup(rows, startingInvoiceNumber) {
 	const existing = document.getElementById("clc-era-export-test-popup");
 	if (existing) existing.remove();
+	const csv = buildQboInvoiceCsv(rows, startingInvoiceNumber);
+	const downloadUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
 
 	const wrap = document.createElement("div");
 	wrap.id = "clc-era-export-test-popup";
@@ -426,7 +538,7 @@ function showResultsTablePopup(state) {
 		position: "fixed",
 		right: "16px",
 		bottom: "64px",
-		width: "760px",
+		width: "460px",
 		maxHeight: "70vh",
 		overflow: "auto",
 		zIndex: "100000",
@@ -449,61 +561,101 @@ function showResultsTablePopup(state) {
 		marginBottom: "8px",
 		cursor: "pointer"
 	});
-	close.addEventListener("click", () => wrap.remove());
-
-	const table = document.createElement("table");
-	Object.assign(table.style, {
-		width: "100%",
-		borderCollapse: "collapse"
+	close.addEventListener("click", () => {
+		URL.revokeObjectURL(downloadUrl);
+		wrap.remove();
 	});
 
-	const thead = document.createElement("thead");
-	const headRow = document.createElement("tr");
-	["ERA #", "Invoice Item", "Total Allocation", "Invoice Rate", "Tax Rate", "Check Memo"].forEach(label => {
-		const th = document.createElement("th");
-		th.textContent = label;
-		Object.assign(th.style, {
-			border: "1px solid #ccc",
-			padding: "6px",
-			textAlign: "left",
-			background: "#f5f5f5"
-		});
-		headRow.appendChild(th);
+	const message = document.createElement("div");
+	message.textContent = `${rows.length} invoice line${rows.length === 1 ? "" : "s"} are ready for QBO.`;
+	message.style.margin = "8px 0 12px";
+
+	const link = document.createElement("a");
+	link.href = downloadUrl;
+	link.download = `qbo-invoices-${startingInvoiceNumber}.csv`;
+	link.textContent = "Download QBO invoice CSV";
+	Object.assign(link.style, {
+		display: "inline-block",
+		padding: "9px 12px",
+		background: "#1f84d1",
+		color: "#fff",
+		borderRadius: "6px",
+		textDecoration: "none",
+		fontWeight: "600"
 	});
-	thead.appendChild(headRow);
-
-	const tbody = document.createElement("tbody");
-	for (const row of (state.results ?? state.rows ?? [])) {
-		const tr = document.createElement("tr");
-		const values = [
-			row.eraNumber ?? state.era?.eraNumber ?? "",
-			row.invoiceItem,
-			row.totalAllocation,
-			row.invoiceRate,
-			row.taxRate || "(none)",
-			row.checkMemo
-		];
-
-		for (const value of values) {
-			const td = document.createElement("td");
-			td.textContent = value ?? "";
-			Object.assign(td.style, {
-				border: "1px solid #ddd",
-				padding: "6px",
-				verticalAlign: "top"
-			});
-			tr.appendChild(td);
-		}
-
-		tbody.appendChild(tr);
-	}
-
-	table.appendChild(thead);
-	table.appendChild(tbody);
 
 	wrap.appendChild(close);
-	wrap.appendChild(table);
+	wrap.appendChild(message);
+	wrap.appendChild(link);
 	document.body.appendChild(wrap);
+}
+
+/**
+ * @param {SummaryRow[]} rows
+ * @param {string} startingInvoiceNumber
+ */
+function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
+	const firstNumber = BigInt(startingInvoiceNumber);
+	const numberWidth = startingInvoiceNumber.length;
+	let nextOffset = 0n;
+	let currentInvoiceNumber = "";
+	const outputRows = [QBO_CSV_HEADERS];
+
+	for (const row of rows) {
+		const isFirstInvoiceLine = !row.isTaxRounding || currentInvoiceNumber === "";
+		if (isFirstInvoiceLine) {
+			currentInvoiceNumber = (firstNumber + nextOffset).toString().padStart(numberWidth, "0");
+			nextOffset += 1n;
+		}
+
+		const invoiceDate = formatQboDate(row.invoiceDate ?? "");
+		const taxable = row.taxRate.trim() !== "";
+		outputRows.push([
+			currentInvoiceNumber,
+			isFirstInvoiceLine ? "Therapy Notes" : "",
+			isFirstInvoiceLine ? invoiceDate : "",
+			isFirstInvoiceLine ? invoiceDate : "",
+			isFirstInvoiceLine ? "Due Now" : "",
+			"",
+			"",
+			mapInvoiceItemToQbo(row.invoiceItem),
+			"",
+			"1",
+			formatQboAmount(row.invoiceRate),
+			formatQboAmount(row.totalAllocation),
+			taxable ? "Y" : "N",
+			taxable ? formatTaxRate(row.taxRate) : "",
+			"", "", "", "", "", ""
+		]);
+	}
+
+	return outputRows.map(values => values.map(escapeCsvValue).join(",")).join("\r\n") + "\r\n";
+}
+
+/** @param {string} value */
+function formatQboAmount(value) {
+	const amount = parseMoney(value);
+	return amount == null ? "" : amount.toFixed(2);
+}
+
+/** @param {string} value */
+function formatTaxRate(value) {
+	const trimmed = value.trim();
+	return trimmed.endsWith("%") ? trimmed : `${trimmed}%`;
+}
+
+/** @param {string} value */
+function formatQboDate(value) {
+	const match = value.trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+	if (!match) return value.trim();
+	const year = match[3].length === 4 ? match[3].slice(-2) : match[3];
+	return `${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}-${year}`;
+}
+
+/** @param {unknown} value */
+function escapeCsvValue(value) {
+	const text = String(value ?? "");
+	return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 /**

@@ -35,12 +35,20 @@ export const ALL_READY = Promise.all([
 setLoadPromises(taxRatesReady, sfTherapistsReady, invoiceItemsReady);
 
 loadCsvWithCache(TAX_RATES_CSV_URL, STORAGE_KEYS.TAX_RATES, (data) => {
-	const result = { santaFe: 0, lasCruces: 0 };
+	const result = { santaFe: 0, lasCruces: 0, santaFeLabel: "", lasCrucesLabel: "" };
 	for (const row of data) {
 		const location = row["city"]?.toLowerCase();
-		const rate = parseFloat(row["tax rate (%)"] ?? "0") / 100;
-		if (location === "santa fe") result.santaFe = rate;
-		if (location === "las cruces") result.lasCruces = rate;
+		const sourceRate = row["tax rate (%)"]?.trim() ?? "0";
+		const rate = parseFloat(sourceRate) / 100;
+		const label = sourceRate.endsWith("%") ? sourceRate : `${sourceRate}%`;
+		if (location === "santa fe") {
+			result.santaFe = rate;
+			result.santaFeLabel = label;
+		}
+		if (location === "las cruces") {
+			result.lasCruces = rate;
+			result.lasCrucesLabel = label;
+		}
 	}
 	setTaxRateVars(result);
 }, taxRatesLoaded);
@@ -53,14 +61,15 @@ loadCsvWithCache(SF_THERAPISTS_URL, STORAGE_KEYS.SF_THERAPISTS, (rows) => {
 }, sfTherapistsLoaded);
 
 loadCsvWithCache(INVOICE_ITEMS_URL, STORAGE_KEYS.INVOICE_ITEMS, (rows) => {
-	/** @type {{ [payer: string]: { item: string, memo?: string, taxable?: boolean } }} */
+	/** @type {{ [payer: string]: { item: string, memo?: string, taxable?: boolean, nonTaxableItem?: string } }} */
 	const parsed = {};
 	for (const r of rows) {
 		const payer = r["primary payer"];
 		const item = r["invoice item"];
 		const memo = r["check memo"];
 		const taxable = parseBooleanFlag(r["taxable"]);
-		if (payer && item) parsed[payer] = { item, memo, taxable };
+		const nonTaxableItem = r["non-taxable invoice item"];
+		if (payer && item) parsed[payer] = { item, memo, taxable, nonTaxableItem };
 	}
 	setInvoiceItems(parsed);
 }, invoiceItemsLoaded);

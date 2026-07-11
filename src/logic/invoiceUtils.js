@@ -1,6 +1,5 @@
 import { 
 	PAYER_TO_INVOICE_ITEM_DATA,
-	NON_TAXABLE_ITEM_BY_TAXABLE_ITEM,
 	getUseMedicareOverride,
 	getUseGehaOverride
 } from "../data/constants.js";
@@ -29,8 +28,12 @@ export function isInvoiceItemTaxable(payerName) {
 
 /** @param {string | null | undefined} payerName */
 export function getNonTaxableInvoiceItem(payerName) {
-	const taxableItem = getInvoiceItemData(payerName)?.item;
-	return taxableItem ? NON_TAXABLE_ITEM_BY_TAXABLE_ITEM.get(taxableItem) : undefined;
+	return getInvoiceItemData(payerName)?.nonTaxableItem;
+}
+
+/** @param {string} invoiceItem */
+export function mapInvoiceItemToQbo(invoiceItem) {
+	return invoiceItem.replace(/\s+\((?:Santa Fe|Las Cruces)\)$/, "").trim();
 }
 
 /**
@@ -38,7 +41,7 @@ export function getNonTaxableInvoiceItem(payerName) {
  * @param {string | null} locationTag
  */
 export function formatInvoiceItem(payerName, locationTag) {
-	if (getUseMedicareOverride()) return "Medicare";
+	if (getUseMedicareOverride()) return "Medicare:Medicare";
 	if (getUseGehaOverride()) return "Managed Health Network";
 	const match = getInvoiceItemData(payerName);
 	const base = match?.item ?? `${payerName} — Please Verify`;

@@ -1,4 +1,4 @@
-/** @typedef {{ item: string, memo?: string, taxable?: boolean }} InvoiceItemData */
+/** @typedef {{ item: string, memo?: string, taxable?: boolean, nonTaxableItem?: string }} InvoiceItemData */
 /** @typedef {{ [payer: string]: InvoiceItemData }} InvoiceItemMap */
 
 export const TAX_RATES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=0&single=true&output=csv";
@@ -6,15 +6,6 @@ export const SF_THERAPISTS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX
 export const INVOICE_ITEMS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=1880971213&single=true&output=csv";
 
 export const EXCLUDED_PAYERS = new Set(["PGBA,LLC", "Carelon Behavioral Health, Inc."]);
-
-// Taxable QBO items and the non-taxable item used for penny adjustments.
-// These pairs come from TherapyNotes Visual Tool.xlsx in the project root.
-export const NON_TAXABLE_ITEM_BY_TAXABLE_ITEM = new Map([
-	["Blue Cross Centenial", "Blue Cross Managed Care"],
-	["Presbyterian Centennial", "Presbyterian Managed Care"],
-	["Molina Medicaid", "Molina Managed Care"],
-	["United Healthcare", "United Healthcare"]
-]);
 
 export const USE_SECONDARY_PAYER = new Set([
 	"NM Medicare Part B J4 ATTN: CLAIMS",
@@ -39,22 +30,26 @@ export let sfTherapistsReady;
 export let invoiceItemsReady;
 export let LAS_CRUCES_TAX_RATE = 0.00;
 export let SANTA_FE_TAX_RATE = 0.00;
+export let LAS_CRUCES_TAX_RATE_LABEL = "";
+export let SANTA_FE_TAX_RATE_LABEL = "";
 /** @type {InvoiceItemMap} */
 export let PAYER_TO_INVOICE_ITEM_DATA = {};
 /** @type {{ [href: string]: string }} */
 export const therapistNameCache = {};
 
 export const STORAGE_KEYS = {
-	INVOICE_ITEMS: "invoiceItems",
+	INVOICE_ITEMS: "invoiceItems-v2",
 	SF_THERAPISTS: "sfTherapists",
 	TAX_RATES: "taxRates"
 };
 
 // Export updaters
-/** @param {{ lasCruces: number, santaFe: number }} param0 */
-export function setTaxRateVars({ lasCruces, santaFe }) {
+/** @param {{ lasCruces: number, santaFe: number, lasCrucesLabel?: string, santaFeLabel?: string }} param0 */
+export function setTaxRateVars({ lasCruces, santaFe, lasCrucesLabel, santaFeLabel }) {
 	LAS_CRUCES_TAX_RATE = lasCruces;
 	SANTA_FE_TAX_RATE = santaFe;
+	LAS_CRUCES_TAX_RATE_LABEL = lasCrucesLabel ?? `${lasCruces * 100}%`;
+	SANTA_FE_TAX_RATE_LABEL = santaFeLabel ?? `${santaFe * 100}%`;
 }
 /** @param {InvoiceItemMap} data */
 export function setInvoiceItems(data) {
