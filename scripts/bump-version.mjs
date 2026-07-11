@@ -14,9 +14,11 @@ if (!VALID_BUMP_TYPES.has(bumpType)) {
 const rootDir = process.cwd();
 const packageJsonPath = path.join(rootDir, "package.json");
 const packageLockPath = path.join(rootDir, "package-lock.json");
+const manifestPath = path.join(rootDir, "public", "manifest.json");
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 const packageLock = JSON.parse(readFileSync(packageLockPath, "utf8"));
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
 const previousVersion = packageJson.version;
 const nextVersion = bumpVersion(previousVersion, bumpType);
@@ -28,8 +30,12 @@ if (packageLock.packages?.[""]) {
 	packageLock.packages[""].version = nextVersion;
 }
 
+manifest.version = toManifestVersion(nextVersion);
+manifest.version_name = nextVersion;
+
 writeJson(packageJsonPath, packageJson);
 writeJson(packageLockPath, packageLock);
+writeJson(manifestPath, manifest);
 
 console.log(`Updated version: ${previousVersion} -> ${nextVersion}`);
 
@@ -80,6 +86,11 @@ function parseVersion(version) {
 		patch: Number(match[3]),
 		build: Number(match[4] ?? 0)
 	};
+}
+
+function toManifestVersion(version) {
+	const { major, minor, patch, build } = parseVersion(version);
+	return `${major}.${minor}.${patch}.${build}`;
 }
 
 function writeJson(filePath, value) {
