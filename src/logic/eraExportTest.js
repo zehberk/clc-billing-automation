@@ -1,4 +1,5 @@
 import { normalizeHref } from "./hrefUtils.js";
+import { EXCLUDED_PAYERS } from "../data/constants.js";
 
 const STORAGE_KEY = "clc-era-export-test-state-v2";
 const LOG_PREFIX = "[CLC][ERA Export Test]";
@@ -55,6 +56,15 @@ function isPaymentDetailPage() {
 	return window.location.href.includes("DisplayContext=PaymentStaticView");
 }
 
+/**
+ * @param {string} value
+ * @returns {number | undefined}
+ */
+function parseMoney(value) {
+	const amount = parseFloat(value.replace(/[^0-9.-]/g, ""));
+	return Number.isNaN(amount) ? undefined : amount;
+}
+
 function injectTestButton() {
 	if (document.getElementById("clc-era-export-test-btn")) return;
 	if (!document.body) return;
@@ -100,15 +110,16 @@ function startSingleEraTest() {
 			const eraNumber = cells?.[0]?.textContent?.trim() ?? "";
 			const received = cells?.[1]?.textContent?.trim() ?? "";
 			const payer = cells?.[2]?.textContent?.trim() ?? "";
+			const payment = parseMoney(cells?.[3]?.textContent?.trim() ?? "");
 			const href = link.getAttribute("href") ?? "";
-			if (!href) return null;
+			if (!href || payment === 0 || EXCLUDED_PAYERS.has(payer)) return null;
 			return { eraNumber, received, payer, href };
 		})
 		.filter((era) => era !== null);
 
 	if (eras.length === 0) {
-		log("View Payment links are missing href");
-		showPopup("View Payment links are missing href.");
+		log("No eligible ERA rows found");
+		showPopup("No eligible ERA rows found. Rows with $0 payments and excluded payers are skipped.");
 		return;
 	}
 
