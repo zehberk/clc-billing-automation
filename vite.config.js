@@ -8,7 +8,8 @@ export default defineConfig({
 		rollupOptions: {
 			input: {
 				main: resolve(__dirname, "main.js"),
-				background: resolve(__dirname, "background.js")
+				background: resolve(__dirname, "background.js"),
+				paymentDemo: resolve(__dirname, "payment-demo.html")
 			},
 			output: {
 				entryFileNames: "[name].js"
