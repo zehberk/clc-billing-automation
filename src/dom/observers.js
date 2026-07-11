@@ -9,6 +9,12 @@ ALL_READY.then(() => { dataReady = true; });
  * @param {(el: Element) => void} callback
  */
 export function waitForElement(selector, callback) {
+	const existing = document.querySelector(selector);
+	if (existing) {
+		callback(existing);
+		return;
+	}
+
 	const observer = new MutationObserver(() => {
 		const el = document.querySelector(selector);
 		if (el) {

@@ -53,13 +53,15 @@ function resolveEffectivePayer(primary, secondary, pageLevelPayer, transactionId
 export async function injectPaymentSummary() {
 	if (document.querySelector("#QuickBooksSummaryTable")) return;
 
-	const table = document.querySelector("#BillingTransactionsTableList");
-	if (!table) return;
-	if (!(table instanceof HTMLTableElement)) return;
+	const paymentTable = document.querySelector("#BillingTransactionsTableList");
+	const adjustmentsTable = document.querySelector("#AdjustmentsTableList");
+	const anchorTable = paymentTable || adjustmentsTable;
+	if (!(anchorTable instanceof HTMLTableElement)) return;
 
 	/** @type {HTMLTableRowElement[]} */
-	const rows = Array.from(table.querySelectorAll("tbody tr"));
-	if (rows.length === 0) return;
+	const rows = paymentTable instanceof HTMLTableElement
+		? Array.from(paymentTable.querySelectorAll("tbody tr"))
+		: [];
 
 	// Page-level payer
 	const pageLevelPayer = (() => {
@@ -165,13 +167,27 @@ export async function injectPaymentSummary() {
 	// -------- Adjustments --------
 	const adjustmentTotal = getAdjustmentTotal();
 	if (adjustmentTotal !== 0) {
-		for (const [key, data] of Object.entries(itemTotalsMap)) {
-			if (data.taxRate == null) {     // catches null or undefined
-				data.totalAllocation += adjustmentTotal;
-				data.invoiceRate += adjustmentTotal;
-				break;
-			}
+		// When the payment already has a non-taxable item, the adjustment belongs
+		// to that company/item. Otherwise create a separate untaxed payer item so
+		// taxable allocations remain untouched.
+		let adjustmentItem = Object.values(itemTotalsMap).find(
+			data => data.taxRate == null
+		);
+
+		if (!adjustmentItem) {
+			const adjustmentPayer = pageLevelPayer || lastPayer || "Payment Adjustment";
+			const adjustmentItemKey = formatInvoiceItem(adjustmentPayer, null);
+			adjustmentItem = itemTotalsMap[adjustmentItemKey] ?? {
+				totalAllocation: 0,
+				invoiceRate: 0,
+				taxRate: null,
+				payerName: adjustmentPayer
+			};
+			itemTotalsMap[adjustmentItemKey] = adjustmentItem;
 		}
+
+		adjustmentItem.totalAllocation += adjustmentTotal;
+		adjustmentItem.invoiceRate += adjustmentTotal;
 	}
 
 	// -------- Render --------
@@ -215,8 +231,8 @@ export async function injectPaymentSummary() {
 		<tbody>${bodyRows}</tbody>
 	`;
 
-	if (table.parentNode) {
-		table.parentNode.insertBefore(summaryTable, table);
+	if (anchorTable.parentNode) {
+		anchorTable.parentNode.insertBefore(summaryTable, anchorTable);
 	}
 
 	// -------- Error Checking ---------
@@ -337,7 +353,8 @@ function getAdjustmentTotal() {
 		// Parentheses = negative
 		if (raw.includes("(")) value = "-" + value;
 
-		total += parseFloat(value);
+		const amount = parseFloat(value);
+		if (Number.isFinite(amount)) total += amount;
 	}
 
 	return total;

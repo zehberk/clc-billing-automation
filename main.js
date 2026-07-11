@@ -99,7 +99,7 @@ function startInvoiceAutoSelectWatcher() {
 	startDomObserver();
 }
 
-waitForElement("#BillingTransactionsTableList", () => {
+waitForElement("#BillingTransactionsTableList, #AdjustmentsTableList", () => {
 	injectSharedStyles();
 	// console.log("Test")
 	const currentHref = normalizeHref(window.location.href);
