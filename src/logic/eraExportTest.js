@@ -646,10 +646,18 @@ function formatTaxRate(value) {
 
 /** @param {string} value */
 function formatQboDate(value) {
-	const match = value.trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+	const trimmed = value.trim();
+	if (/^\d{1,2}:\d{2}\s*(?:AM|PM)$/i.test(trimmed)) {
+		const today = new Date();
+		return `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+	}
+
+	const match = trimmed.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
 	if (!match) return value.trim();
-	const year = match[3].length === 4 ? match[3].slice(-2) : match[3];
-	return `${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}-${year}`;
+	const month = String(Number(match[1]));
+	const day = String(Number(match[2]));
+	const year = match[3].length === 4 ? match[3] : `20${match[3]}`;
+	return `${month}/${day}/${year}`;
 }
 
 /** @param {unknown} value */
