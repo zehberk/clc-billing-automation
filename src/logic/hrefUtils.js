@@ -4,6 +4,17 @@ export function normalizeHref(href) {
 }
 
 /** @param {string} href */
+export function isEraPaymentDetailHref(href) {
+	try {
+		const url = new URL(href, window.location.origin);
+		const routeParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+		return routeParams.get("DisplayContext") === "PaymentStaticView";
+	} catch {
+		return false;
+	}
+}
+
+/** @param {string} href */
 export function getEraPayerByHref(href) {
 	/** @type {{ [href: string]: string }} */
 	const map = JSON.parse(localStorage.getItem("eraPayerMap") || "{}");

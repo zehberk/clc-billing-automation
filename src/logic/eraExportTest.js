@@ -1,4 +1,4 @@
-import { normalizeHref } from "./hrefUtils.js";
+import { isEraPaymentDetailHref, normalizeHref } from "./hrefUtils.js";
 import { EXCLUDED_PAYERS } from "../data/constants.js";
 import { mapInvoiceItemToQbo } from "./invoiceUtils.js";
 import { recordCsvGenerated } from "../data/csvHistory.js";
@@ -56,8 +56,7 @@ function isEraListPage() {
 }
 
 function isPaymentDetailPage() {
-	if (document.querySelector("#BillingTransactionsTableList")) return true;
-	return window.location.href.includes("DisplayContext=PaymentStaticView");
+	return isEraPaymentDetailHref(window.location.href);
 }
 
 /**
