@@ -58,3 +58,10 @@ export function resolveCheckMemo(payerName, transactionId) {
 	const match = getInvoiceItemData(payerName);
 	return match?.memo || transactionId || "Not Defined - Please Verify";
 }
+
+/** @param {string | null | undefined} payerName */
+export function resolvePaymentMethod(payerName) {
+	if (getUseMedicareOverride()) return "Medicare";
+	const match = getInvoiceItemData(payerName);
+	return match?.paymentMethod || "Not Defined - Please Verify";
+}

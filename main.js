@@ -55,9 +55,11 @@ import { getPaymentField } from "./src/logic/paymentFields.js";
 import { waitForElement, attachEraClickHandlers } from "./src/dom/observers.js";
 import { autoSelectInvoiceCustomer } from "./src/dom/invoiceCustomer.js";
 import { initEraExportTest } from "./src/logic/eraExportTest.js";
+import { initReceivePaymentAutomation } from "./src/dom/recvPaymentExperiment.js";
 
 // startInvoiceAutoSelectWatcher();
 initEraExportTest();
+initReceivePaymentAutomation();
 
 function startInvoiceAutoSelectWatcher() {
 	let lastHref = "";

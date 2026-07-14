@@ -61,15 +61,16 @@ loadCsvWithCache(SF_THERAPISTS_URL, STORAGE_KEYS.SF_THERAPISTS, (rows) => {
 }, sfTherapistsLoaded);
 
 loadCsvWithCache(INVOICE_ITEMS_URL, STORAGE_KEYS.INVOICE_ITEMS, (rows) => {
-	/** @type {{ [payer: string]: { item: string, memo?: string, taxable?: boolean, nonTaxableItem?: string } }} */
+	/** @type {{ [payer: string]: { item: string, memo?: string, paymentMethod?: string, taxable?: boolean, nonTaxableItem?: string } }} */
 	const parsed = {};
 	for (const r of rows) {
 		const payer = r["primary payer"];
 		const item = r["invoice item"];
 		const memo = r["check memo"];
+		const paymentMethod = r["payment method"];
 		const taxable = parseBooleanFlag(r["taxable"]);
 		const nonTaxableItem = r["non-taxable invoice item"];
-		if (payer && item) parsed[payer] = { item, memo, taxable, nonTaxableItem };
+		if (payer && item) parsed[payer] = { item, memo, paymentMethod, taxable, nonTaxableItem };
 	}
 	setInvoiceItems(parsed);
 }, invoiceItemsLoaded);

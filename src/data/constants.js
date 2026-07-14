@@ -1,4 +1,4 @@
-/** @typedef {{ item: string, memo?: string, taxable?: boolean, nonTaxableItem?: string }} InvoiceItemData */
+/** @typedef {{ item: string, memo?: string, paymentMethod?: string, taxable?: boolean, nonTaxableItem?: string }} InvoiceItemData */
 /** @typedef {{ [payer: string]: InvoiceItemData }} InvoiceItemMap */
 
 export const TAX_RATES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=0&single=true&output=csv";
@@ -38,7 +38,7 @@ export let PAYER_TO_INVOICE_ITEM_DATA = {};
 export const therapistNameCache = {};
 
 export const STORAGE_KEYS = {
-	INVOICE_ITEMS: "invoiceItems-v2",
+	INVOICE_ITEMS: "invoiceItems-v3",
 	SF_THERAPISTS: "sfTherapists",
 	TAX_RATES: "taxRates"
 };

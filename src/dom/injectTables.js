@@ -1,8 +1,9 @@
 import { therapistNameCache, USE_SECONDARY_PAYER  } from "../data/constants.js";
 import { resolveTherapistName, parseAllocation } from "../logic/rowUtils.js";
-import { normalizePayerName, formatInvoiceItem, resolveCheckMemo, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
+import { normalizePayerName, formatInvoiceItem, resolveCheckMemo, resolvePaymentMethod, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
 import { calculatePaymentBeforeTax, calculateQboTaxableLine } from "../logic/taxUtils.js";
 import { getPaymentField } from "../logic/paymentFields.js";
+import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 
 /** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, payerName: string, locationTag: string | null }} SummaryEntry */
 /** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, payerName: string, invoiceItem?: string, roundingFor?: string }} ItemTotal */
@@ -227,10 +228,13 @@ export async function injectPaymentSummary() {
 	});
 
 	let bodyRows = "";
+	const rowPaymentMethods = [];
 	for (const [itemKey, data] of sortedEntries) {
 		const { totalAllocation, invoiceRate, taxRate, taxRateLabel, payerName } = data;
 		const item = data.invoiceItem ?? itemKey;
 		const checknum = resolveCheckMemo(payerName, transactionId);
+		const paymentMethod = resolvePaymentMethod(payerName);
+		rowPaymentMethods.push(paymentMethod);
 
 		bodyRows += `
 			<tr style="background-color: #f9fef9;"${data.roundingFor != null ? ' data-clc-tax-rounding="true"' : ''}>
@@ -260,6 +264,7 @@ export async function injectPaymentSummary() {
 		</thead>
 		<tbody>${bodyRows}</tbody>
 	`;
+	setPaymentSummaryMethods(summaryTable, rowPaymentMethods);
 
 	if (anchorTable.parentNode) {
 		anchorTable.parentNode.insertBefore(summaryTable, anchorTable);

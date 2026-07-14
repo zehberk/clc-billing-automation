@@ -1,6 +1,9 @@
 import { normalizeHref } from "./hrefUtils.js";
 import { EXCLUDED_PAYERS } from "../data/constants.js";
 import { mapInvoiceItemToQbo } from "./invoiceUtils.js";
+import { recordCsvGenerated } from "../data/csvHistory.js";
+import { createQboPaymentManifest } from "./qboPaymentManifest.js";
+import { getPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 
 const STORAGE_KEY = "clc-era-export-test-state-v2";
 const LOG_PREFIX = "[CLC][ERA Export Test]";
@@ -8,7 +11,7 @@ const SUMMARY_TIMEOUT_MS = 45000;
 
 /**
  * @typedef {{ eraNumber: string, received: string, payer: string, href: string }} EraEntry
- * @typedef {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, isTaxRounding?: boolean, invoiceItem: string, totalAllocation: string, invoiceRate: string, taxRate: string, checkMemo: string }} SummaryRow
+ * @typedef {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, isTaxRounding?: boolean, invoiceItem: string, totalAllocation: string, invoiceRate: string, taxRate: string, checkMemo: string, paymentMethod: string }} SummaryRow
  * @typedef {{
  *  mode: "single-era-test",
  *  runId: string,
@@ -92,19 +95,9 @@ function injectTestButton() {
 	document.body.appendChild(button);
 }
 
-function startSingleEraTest() {
-	log("Button clicked. Starting ERA export test for all rows.");
-
-	const links = Array.from(document.querySelectorAll("a[href*='DisplayContext=PaymentStaticView']"))
-		.filter(link => link instanceof HTMLAnchorElement);
-	if (links.length === 0) {
-		log("No View Payment links found");
-		showPopup("No View Payment links found on this page.");
-		return;
-	}
-
-	/** @type {EraEntry[]} */
-	const eras = links
+function getEligibleEraRows() {
+	return Array.from(document.querySelectorAll("a[href*='DisplayContext=PaymentStaticView']"))
+		.filter(link => link instanceof HTMLAnchorElement)
 		.map(link => {
 			const row = link.closest("tr");
 			const cells = row?.querySelectorAll("td");
@@ -113,10 +106,24 @@ function startSingleEraTest() {
 			const payer = cells?.[2]?.textContent?.trim() ?? "";
 			const payment = parseMoney(cells?.[3]?.textContent?.trim() ?? "");
 			const href = link.getAttribute("href") ?? "";
-			if (!href || payment === 0 || EXCLUDED_PAYERS.has(payer)) return null;
-			return { eraNumber, received, payer, href };
+			if (!row || !href || payment === 0 || EXCLUDED_PAYERS.has(payer)) return null;
+			return { row, era: { eraNumber, received, payer, href } };
 		})
-		.filter((era) => era !== null);
+		.filter(entry => entry !== null);
+}
+
+function startSingleEraTest() {
+	log("Button clicked. Starting ERA export test for all rows.");
+
+	const entries = getEligibleEraRows();
+	if (entries.length === 0) {
+		log("No View Payment links found");
+		showPopup("No View Payment links found on this page.");
+		return;
+	}
+
+	/** @type {EraEntry[]} */
+	const eras = entries.map(entry => entry.era);
 
 	if (eras.length === 0) {
 		log("No eligible ERA rows found");
@@ -305,7 +312,8 @@ function extractSummaryRows(table) {
 	const rows = /** @type {HTMLTableRowElement[]} */ (
 		Array.from(table.querySelectorAll("tbody tr"))
 	);
-	return rows.map(row => {
+	const paymentMethods = getPaymentSummaryMethods(table);
+	return rows.map((row, index) => {
 		const cells = row.querySelectorAll("td");
 		return {
 			isTaxRounding: row.dataset.clcTaxRounding === "true",
@@ -313,7 +321,8 @@ function extractSummaryRows(table) {
 			totalAllocation: cells?.[1]?.textContent?.trim() ?? "",
 			taxRate: cells?.[2]?.textContent?.trim() ?? "",
 			invoiceRate: cells?.[3]?.textContent?.trim() ?? "",
-			checkMemo: cells?.[4]?.textContent?.trim() ?? ""
+			checkMemo: cells?.[4]?.textContent?.trim() ?? "",
+			paymentMethod: paymentMethods[index] ?? ""
 		};
 	});
 }
@@ -348,7 +357,8 @@ function onStorageChanged(event) {
 			totalAllocation: "",
 			invoiceRate: "",
 			taxRate: "",
-			checkMemo: reason
+			checkMemo: reason,
+			paymentMethod: ""
 		};
 		advanceToNextEra(state, [noteRow]);
 		return;
@@ -530,6 +540,22 @@ function showCsvDownloadPopup(rows, startingInvoiceNumber) {
 	const existing = document.getElementById("clc-era-export-test-popup");
 	if (existing) existing.remove();
 	const csv = buildQboInvoiceCsv(rows, startingInvoiceNumber);
+	const { invoices, payments } = createQboPaymentManifest(rows, startingInvoiceNumber);
+	const historyRecord = {
+		id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+		generatedAt: new Date().toISOString(),
+		fileName: `qbo-invoices-${startingInvoiceNumber}.csv`,
+		originHref: normalizeHref(window.location.href),
+		startingInvoiceNumber,
+		invoiceCount: invoices.length,
+		lineCount: rows.length,
+		invoices,
+		payments
+	};
+	console.log(`${LOG_PREFIX} QBO payment data collected`, historyRecord);
+	recordCsvGenerated(historyRecord).then(result => {
+		if (!result.ok) log("CSV was generated but history could not be saved", result.error);
+	});
 	const downloadUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
 
 	const wrap = document.createElement("div");
@@ -622,7 +648,7 @@ function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
 			"",
 			"1",
 			formatQboAmount(row.invoiceRate),
-			formatQboAmount(row.totalAllocation),
+			formatQboAmount(row.invoiceRate),
 			taxable ? "Y" : "N",
 			taxable ? formatTaxRate(row.taxRate) : "",
 			"", "", "", "", "", ""
