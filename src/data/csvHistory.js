@@ -18,14 +18,19 @@ export async function getCsvHistory() {
 	return response.history;
 }
 
+
+/**
+ * @param {Record<string, unknown>} message
+ * @returns {Promise<any>}
+ */
 function sendMessage(message) {
 	return new Promise(resolve => {
-		const runtime = globalThis.chrome?.runtime;
+		const runtime = (/** @type {any} */ (globalThis)).chrome?.runtime;
 		if (!runtime?.sendMessage) {
 			resolve({ ok: false, error: "Extension storage is unavailable." });
 			return;
 		}
-		runtime.sendMessage(message, response => {
+		runtime.sendMessage(message, (/** @type {any} */ response) => {
 			const error = runtime.lastError;
 			resolve(error ? { ok: false, error: error.message } : (response ?? { ok: false }));
 		});

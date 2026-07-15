@@ -104,6 +104,7 @@ export function calculateQboTaxableLine(grossAmount, taxRate) {
 			best = { ...candidate, offset };
 		}
 	}
+	if (best == null) throw new Error("Unable to calculate a taxable invoice amount.");
 
 	return {
 		taxableAmount: best.taxableCents / 100,

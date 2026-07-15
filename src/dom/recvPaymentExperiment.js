@@ -5,6 +5,11 @@ const LOG_PREFIX = "[CLC][Receive Payment]";
 const TARGET_TIMEOUT_MS = 30000;
 const OPTION_TIMEOUT_MS = 5000;
 
+/** @typedef {{ invoiceNumber: string, amount: string }} InvoiceSelection */
+/** @typedef {{ paymentReference: string, paymentAmount: string, paymentMemo: string, paymentType: string, requiresReview: boolean, invoiceSelections: InvoiceSelection[] }} SavedPayment */
+/** @typedef {{ payments?: SavedPayment[] }} CsvExportRecord */
+/** @typedef {{ row: HTMLTableRowElement, checkbox: HTMLInputElement, invoiceLink: HTMLAnchorElement, invoiceNumber: string }} InvoiceRow */
+
 export function initReceivePaymentAutomation() {
 	if (window.top !== window || window.location.hostname !== "qbo.intuit.com") return;
 
@@ -43,9 +48,10 @@ export async function runReceivePaymentAutomation() {
 
 	const targetInvoiceNumbers = payment.invoiceSelections.map(selection => selection.invoiceNumber);
 	const invoiceSelection = await selectExactInvoices(targetInvoiceNumbers);
+	const appliedAmounts = await applyPaymentAmounts(payment);
 	const referenceInput = findInputByLabel("Reference no.");
 	if (!referenceInput) throw new Error("Reference number field was not found.");
-	const referenceFilled = setNativeInputValue(referenceInput, payment.paymentMemo);
+	const referenceFilled = await setNativeInputValue(referenceInput, payment.paymentMemo);
 	const paymentMethod = await selectPaymentMethod(payment.paymentType);
 
 	return {
@@ -53,6 +59,7 @@ export async function runReceivePaymentAutomation() {
 		paymentMemo: payment.paymentMemo,
 		referenceFilled,
 		...paymentMethod,
+		...appliedAmounts,
 		...invoiceSelection
 	};
 }
@@ -86,8 +93,9 @@ function waitForAutomationTargets() {
 }
 
 /**
- * @param {object[]} exports
+ * @param {CsvExportRecord[]} exports
  * @param {{ displayedInvoiceNumbers: Set<string>, contextualInvoiceNumber: string, amountReceived: string }} context
+ * @returns {SavedPayment}
  */
 function findPayment(exports, context) {
 	const payments = exports.slice().reverse().flatMap(record => (record.payments ?? []).slice().reverse());
@@ -165,9 +173,76 @@ async function selectExactInvoices(targetInvoiceNumbers) {
 	return { selectedInvoiceNumbers };
 }
 
+/**
+ * Applies the saved ERA total and per-invoice amounts after QBO has rendered
+ * the selected rows. Checkbox selection alone lets QBO choose its own payment
+ * allocation, which is incorrect when a payment is split into unequal amounts.
+ * @param {{ paymentAmount: string, invoiceSelections: { invoiceNumber: string, amount: string }[] }} payment
+ */
+async function applyPaymentAmounts(payment) {
+	const amountReceivedInput = findInputByLabel("Amount received");
+	if (!amountReceivedInput) throw new Error("Amount received field was not found.");
+	await setMoneyInputValue(amountReceivedInput, payment.paymentAmount);
+
+	for (const selection of payment.invoiceSelections) {
+		const entry = getInvoiceRows().find(row => row.invoiceNumber === selection.invoiceNumber);
+		if (!entry) throw new Error(`QBO invoice ${selection.invoiceNumber} disappeared before its payment amount was applied.`);
+		const amountInput = findRowPaymentInput(entry.row);
+		if (!amountInput) throw new Error(`Payment amount field was not found for QBO invoice ${selection.invoiceNumber}.`);
+		await setMoneyInputValue(amountInput, selection.amount);
+	}
+
+	/** @type {Record<string, string>} */
+	const appliedInvoiceAmounts = {};
+	for (const selection of payment.invoiceSelections) {
+		const entry = getInvoiceRows().find(row => row.invoiceNumber === selection.invoiceNumber);
+		const amountInput = entry ? findRowPaymentInput(entry.row) : null;
+		const actual = readMoneyInput(amountInput);
+		if (actual !== normalizeMoney(selection.amount)) {
+			throw new Error(`Payment amount did not verify for invoice ${selection.invoiceNumber}. Expected ${selection.amount}, found ${actual || "blank"}.`);
+		}
+		appliedInvoiceAmounts[selection.invoiceNumber] = actual;
+	}
+
+	const actualTotal = readMoneyInput(amountReceivedInput);
+	if (actualTotal !== normalizeMoney(payment.paymentAmount)) {
+		throw new Error(`Amount received did not verify. Expected ${payment.paymentAmount}, found ${actualTotal || "blank"}.`);
+	}
+	const selectedAfterAmounts = getInvoiceRows()
+		.filter(entry => entry.checkbox.checked)
+		.map(entry => entry.invoiceNumber);
+	const expectedSelections = payment.invoiceSelections.map(selection => selection.invoiceNumber);
+	if (selectedAfterAmounts.length !== expectedSelections.length ||
+		expectedSelections.some(invoiceNumber => !selectedAfterAmounts.includes(invoiceNumber))) {
+		throw new Error("Invoice selection changed while applying payment amounts.");
+	}
+	return { amountReceived: actualTotal, appliedInvoiceAmounts };
+}
+
+/** @param {HTMLTableRowElement} row */
+function findRowPaymentInput(row) {
+	const inputs = Array.from(row.querySelectorAll("input:not([type='hidden']):not([type='checkbox']):not([type='radio'])"))
+		.filter((/** @type {Element} */ input) => input instanceof HTMLInputElement && !input.disabled);
+	const inputElements = /** @type {HTMLInputElement[]} */ (inputs);
+	const labeled = inputElements.filter(input => {
+		const description = [
+			input.getAttribute("aria-label"),
+			input.getAttribute("placeholder"),
+			input.getAttribute("name"),
+			input.getAttribute("data-testid")
+		].filter(Boolean).join(" ");
+		return /payment|amount to apply/i.test(description);
+	});
+	if (labeled.length === 1) return labeled[0];
+	return inputElements.length === 1 ? inputElements[0] : null;
+}
+
+/** @returns {InvoiceRow[]} */
 function getInvoiceRows() {
+	/** @type {InvoiceRow[]} */
 	const rows = [];
 	for (const row of document.querySelectorAll('tr[role="row"]')) {
+		if (!(row instanceof HTMLTableRowElement)) continue;
 		const checkbox = row.querySelector('input[type="checkbox"][aria-label="Select rows"]');
 		const invoiceLink = row.querySelector('a[href*="/app/invoice?txnId="]');
 		if (!(checkbox instanceof HTMLInputElement) || !(invoiceLink instanceof HTMLAnchorElement)) continue;
@@ -200,14 +275,25 @@ function findInputByLabel(labelText) {
 }
 
 /** @param {HTMLInputElement} input @param {string} value */
-function setNativeInputValue(input, value) {
+async function setNativeInputValue(input, value) {
+	// QBO commits this controlled field on focus/blur. Updating an unfocused DOM
+	// input makes the text visible without necessarily updating the saved form state.
+	input.focus();
 	const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
 	if (setter) setter.call(input, value);
 	else input.value = value;
 	input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
 	input.dispatchEvent(new Event("change", { bubbles: true }));
 	input.blur();
+	await nextFrame();
 	return input.value === value;
+}
+
+/** @param {HTMLInputElement} input @param {string} value */
+async function setMoneyInputValue(input, value) {
+	await setNativeInputValue(input, normalizeMoney(value));
+	await nextFrame();
+	return readMoneyInput(input);
 }
 
 /** @param {string} methodName */
@@ -274,6 +360,12 @@ function waitForOption(methodName, controlledMenuId) {
 function readMoneyInput(input) {
 	if (!input) return "";
 	const amount = Number(input.value.replace(/[^0-9.-]/g, ""));
+	return Number.isFinite(amount) ? amount.toFixed(2) : "";
+}
+
+/** @param {string} value */
+function normalizeMoney(value) {
+	const amount = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
 	return Number.isFinite(amount) ? amount.toFixed(2) : "";
 }
 
