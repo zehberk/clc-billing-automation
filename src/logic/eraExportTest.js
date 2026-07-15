@@ -1,4 +1,4 @@
-import { isEraPaymentDetailHref, normalizeHref } from "./hrefUtils.js";
+import { isEraPaymentDetailHref, normalizeHref, setEraPayerByHref } from "./hrefUtils.js";
 import { EXCLUDED_PAYERS } from "../data/constants.js";
 import { mapInvoiceItemToQbo } from "./invoiceUtils.js";
 import { recordCsvGenerated } from "../data/csvHistory.js";
@@ -151,6 +151,7 @@ function startSingleEraTest() {
 	};
 
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+	setEraPayerByHref(state.targetHref, firstEra.payer);
 	log("Saved state and requesting background tab open", {
 		runId,
 		eraCount: eras.length,
@@ -787,6 +788,7 @@ function advanceToNextEra(state, newRows) {
 		error: undefined
 	};
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+	setEraPayerByHref(nextState.targetHref, nextEra.payer);
 	log("Opening next ERA", { runId: state.runId, nextIndex, eraNumber: nextEra.eraNumber });
 	openEraTab(nextEra.href);
 }
