@@ -4,9 +4,10 @@ const RECEIVE_PAYMENT_PATH = "/app/recvpayment";
 const LOG_PREFIX = "[CLC][Receive Payment]";
 const TARGET_TIMEOUT_MS = 30000;
 const OPTION_TIMEOUT_MS = 5000;
+const SELECTION_SETTLE_MS = 750;
 
 /** @typedef {{ invoiceNumber: string, amount: string }} InvoiceSelection */
-/** @typedef {{ paymentReference: string, paymentAmount: string, paymentMemo: string, paymentType: string, requiresReview: boolean, invoiceSelections: InvoiceSelection[] }} SavedPayment */
+/** @typedef {{ paymentReference: string, paymentDate: string, paymentAmount: string, paymentMemo: string, paymentType: string, requiresReview: boolean, invoiceSelections: InvoiceSelection[] }} SavedPayment */
 /** @typedef {{ payments?: SavedPayment[] }} CsvExportRecord */
 /** @typedef {{ row: HTMLTableRowElement, checkbox: HTMLInputElement, invoiceLink: HTMLAnchorElement, invoiceNumber: string }} InvoiceRow */
 
@@ -32,15 +33,8 @@ export function initReceivePaymentAutomation() {
 export async function runReceivePaymentAutomation() {
 	await waitForAutomationTargets();
 	const history = await getCsvHistory();
-	const invoiceRows = getInvoiceRows();
-	const displayedInvoiceNumbers = new Set(invoiceRows.map(entry => entry.invoiceNumber));
-	const contextualInvoiceNumber = getContextualInvoiceNumber(invoiceRows);
-	const amountReceived = readMoneyInput(findInputByLabel("Amount received"));
-	const payment = findPayment(history.exports, {
-		displayedInvoiceNumbers,
-		contextualInvoiceNumber,
-		amountReceived
-	});
+	const selectedInvoiceNumber = await waitForSettledCheckedInvoice();
+	const payment = findPayment(history.exports, selectedInvoiceNumber);
 
 	if (payment.requiresReview) {
 		throw new Error(`Payment ${payment.paymentReference || "without a reference"} requires mapping review.`);
@@ -48,18 +42,21 @@ export async function runReceivePaymentAutomation() {
 
 	const targetInvoiceNumbers = payment.invoiceSelections.map(selection => selection.invoiceNumber);
 	const invoiceSelection = await selectExactInvoices(targetInvoiceNumbers);
-	const appliedAmounts = await applyPaymentAmounts(payment);
+	const paymentMethod = await selectPaymentMethod(payment.paymentType);
+	const paymentDateInput = findInputByLabel("Payment Date");
+	if (!paymentDateInput) throw new Error("Payment date field was not found.");
+	const paymentDateFilled = await setNativeInputValue(paymentDateInput, payment.paymentDate);
 	const referenceInput = findInputByLabel("Reference no.");
 	if (!referenceInput) throw new Error("Reference number field was not found.");
 	const referenceFilled = await setNativeInputValue(referenceInput, payment.paymentMemo);
-	const paymentMethod = await selectPaymentMethod(payment.paymentType);
 
 	return {
 		paymentReference: payment.paymentReference,
 		paymentMemo: payment.paymentMemo,
+		paymentDate: payment.paymentDate,
+		paymentDateFilled,
 		referenceFilled,
 		...paymentMethod,
-		...appliedAmounts,
 		...invoiceSelection
 	};
 }
@@ -68,7 +65,10 @@ export async function runReceivePaymentAutomation() {
 export const runReceivePaymentExperiment = runReceivePaymentAutomation;
 
 function automationTargetsReady() {
-	return !!findInputByLabel("Reference no.") && !!findPaymentMethodControl() && getInvoiceRows().length > 0;
+	return !!findInputByLabel("Reference no.") &&
+		!!findInputByLabel("Payment Date") &&
+		!!findPaymentMethodControl() &&
+		getInvoiceRows().length > 0;
 }
 
 /** @returns {Promise<void>} */
@@ -94,51 +94,48 @@ function waitForAutomationTargets() {
 
 /**
  * @param {CsvExportRecord[]} exports
- * @param {{ displayedInvoiceNumbers: Set<string>, contextualInvoiceNumber: string, amountReceived: string }} context
+ * @param {string} selectedInvoiceNumber
  * @returns {SavedPayment}
  */
-function findPayment(exports, context) {
+function findPayment(exports, selectedInvoiceNumber) {
 	const payments = exports.slice().reverse().flatMap(record => (record.payments ?? []).slice().reverse());
-	const available = payments.filter(payment =>
-		payment.invoiceSelections?.length > 0 &&
-		payment.invoiceSelections.every(selection => context.displayedInvoiceNumbers.has(selection.invoiceNumber))
+	const matches = payments.filter(payment =>
+		payment.invoiceSelections?.some(selection => selection.invoiceNumber === selectedInvoiceNumber)
 	);
-	if (context.contextualInvoiceNumber) {
-		const contextMatches = available.filter(payment =>
-			payment.invoiceSelections.some(selection => selection.invoiceNumber === context.contextualInvoiceNumber)
-		);
-		if (contextMatches.length === 1) return contextMatches[0];
-		if (contextMatches.length > 1) throw new Error(`More than one saved payment contains invoice ${context.contextualInvoiceNumber}.`);
-	}
-
-	if (context.amountReceived) {
-		const amountMatches = available.filter(payment => payment.paymentAmount === context.amountReceived);
-		if (amountMatches.length === 1) return amountMatches[0];
-		if (amountMatches.length > 1) throw new Error(`More than one saved payment matches amount ${context.amountReceived}.`);
-	}
-
-	throw new Error("Could not uniquely match this QBO screen to a saved TherapyNotes payment.");
+	if (matches.length === 1) return matches[0];
+	if (matches.length > 1) throw new Error(`More than one saved payment contains invoice ${selectedInvoiceNumber}.`);
+	throw new Error(`No saved TherapyNotes payment contains invoice ${selectedInvoiceNumber}.`);
 }
 
-/**
- * Uses QBO's route transaction ID to identify the invoice that opened this
- * screen. Checkbox state is deliberately ignored because QBO may prefill it
- * incorrectly.
- * @param {{ invoiceLink: HTMLAnchorElement, invoiceNumber: string }[]} invoiceRows
- */
-function getContextualInvoiceNumber(invoiceRows) {
-	const routeParams = new URL(window.location.href).searchParams;
-	const transactionId = routeParams.get("srcTxnId") ?? routeParams.get("txnId");
-	if (!transactionId) return "";
-	const match = invoiceRows.find(entry => {
-		try {
-			const invoiceParams = new URL(entry.invoiceLink.href).searchParams;
-			return (invoiceParams.get("txnId") ?? invoiceParams.get("srcTxnId")) === transactionId;
-		} catch {
-			return false;
-		}
+function waitForSettledCheckedInvoice() {
+	return new Promise((resolve, reject) => {
+		let settleTimer = 0;
+		const getChecked = () => getInvoiceRows().filter(entry => entry.checkbox.checked);
+		const schedule = () => {
+			clearTimeout(settleTimer);
+			const checked = getChecked();
+			if (checked.length !== 1) return;
+			settleTimer = window.setTimeout(() => {
+				const settled = getChecked();
+				if (settled.length !== 1 || settled[0].invoiceNumber !== checked[0].invoiceNumber) {
+					schedule();
+					return;
+				}
+				observer.disconnect();
+				clearTimeout(timeout);
+				resolve(settled[0].invoiceNumber);
+			}, SELECTION_SETTLE_MS);
+		};
+		const observer = new MutationObserver(schedule);
+		observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+		const timeout = window.setTimeout(() => {
+			observer.disconnect();
+			clearTimeout(settleTimer);
+			const count = getChecked().length;
+			reject(new Error(`Expected one settled selected invoice, but found ${count}.`));
+		}, TARGET_TIMEOUT_MS);
+		schedule();
 	});
-	return match?.invoiceNumber ?? "";
 }
 
 /** @param {string[]} targetInvoiceNumbers */
@@ -171,70 +168,6 @@ async function selectExactInvoices(targetInvoiceNumbers) {
 		throw new Error(`Invoice selection did not verify. Missing: ${stillMissing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}.`);
 	}
 	return { selectedInvoiceNumbers };
-}
-
-/**
- * Applies the saved ERA total and per-invoice amounts after QBO has rendered
- * the selected rows. Checkbox selection alone lets QBO choose its own payment
- * allocation, which is incorrect when a payment is split into unequal amounts.
- * @param {{ paymentAmount: string, invoiceSelections: { invoiceNumber: string, amount: string }[] }} payment
- */
-async function applyPaymentAmounts(payment) {
-	const amountReceivedInput = findInputByLabel("Amount received");
-	if (!amountReceivedInput) throw new Error("Amount received field was not found.");
-	await setMoneyInputValue(amountReceivedInput, payment.paymentAmount);
-
-	for (const selection of payment.invoiceSelections) {
-		const entry = getInvoiceRows().find(row => row.invoiceNumber === selection.invoiceNumber);
-		if (!entry) throw new Error(`QBO invoice ${selection.invoiceNumber} disappeared before its payment amount was applied.`);
-		const amountInput = findRowPaymentInput(entry.row);
-		if (!amountInput) throw new Error(`Payment amount field was not found for QBO invoice ${selection.invoiceNumber}.`);
-		await setMoneyInputValue(amountInput, selection.amount);
-	}
-
-	/** @type {Record<string, string>} */
-	const appliedInvoiceAmounts = {};
-	for (const selection of payment.invoiceSelections) {
-		const entry = getInvoiceRows().find(row => row.invoiceNumber === selection.invoiceNumber);
-		const amountInput = entry ? findRowPaymentInput(entry.row) : null;
-		const actual = readMoneyInput(amountInput);
-		if (actual !== normalizeMoney(selection.amount)) {
-			throw new Error(`Payment amount did not verify for invoice ${selection.invoiceNumber}. Expected ${selection.amount}, found ${actual || "blank"}.`);
-		}
-		appliedInvoiceAmounts[selection.invoiceNumber] = actual;
-	}
-
-	const actualTotal = readMoneyInput(amountReceivedInput);
-	if (actualTotal !== normalizeMoney(payment.paymentAmount)) {
-		throw new Error(`Amount received did not verify. Expected ${payment.paymentAmount}, found ${actualTotal || "blank"}.`);
-	}
-	const selectedAfterAmounts = getInvoiceRows()
-		.filter(entry => entry.checkbox.checked)
-		.map(entry => entry.invoiceNumber);
-	const expectedSelections = payment.invoiceSelections.map(selection => selection.invoiceNumber);
-	if (selectedAfterAmounts.length !== expectedSelections.length ||
-		expectedSelections.some(invoiceNumber => !selectedAfterAmounts.includes(invoiceNumber))) {
-		throw new Error("Invoice selection changed while applying payment amounts.");
-	}
-	return { amountReceived: actualTotal, appliedInvoiceAmounts };
-}
-
-/** @param {HTMLTableRowElement} row */
-function findRowPaymentInput(row) {
-	const inputs = Array.from(row.querySelectorAll("input:not([type='hidden']):not([type='checkbox']):not([type='radio'])"))
-		.filter((/** @type {Element} */ input) => input instanceof HTMLInputElement && !input.disabled);
-	const inputElements = /** @type {HTMLInputElement[]} */ (inputs);
-	const labeled = inputElements.filter(input => {
-		const description = [
-			input.getAttribute("aria-label"),
-			input.getAttribute("placeholder"),
-			input.getAttribute("name"),
-			input.getAttribute("data-testid")
-		].filter(Boolean).join(" ");
-		return /payment|amount to apply/i.test(description);
-	});
-	if (labeled.length === 1) return labeled[0];
-	return inputElements.length === 1 ? inputElements[0] : null;
 }
 
 /** @returns {InvoiceRow[]} */
@@ -354,19 +287,6 @@ function waitForOption(methodName, controlledMenuId) {
 			reject(new Error(`Payment method option "${methodName}" did not appear.`));
 		}, OPTION_TIMEOUT_MS);
 	});
-}
-
-/** @param {HTMLInputElement | null} input */
-function readMoneyInput(input) {
-	if (!input) return "";
-	const amount = Number(input.value.replace(/[^0-9.-]/g, ""));
-	return Number.isFinite(amount) ? amount.toFixed(2) : "";
-}
-
-/** @param {string} value */
-function normalizeMoney(value) {
-	const amount = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
-	return Number.isFinite(amount) ? amount.toFixed(2) : "";
 }
 
 function nextFrame() {
