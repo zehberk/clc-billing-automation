@@ -241,12 +241,18 @@ function waitForSummaryTable() {
 				return "Do Not Enter Payment Into QuickBooks warning detected.";
 			}
 
-			const warningNodes = Array.from(document.querySelectorAll("div, table, th, td, span"));
-			for (const node of warningNodes) {
-				const text = node.textContent?.replace(/\s+/g, " ").trim();
-				if (!text) continue;
-				if (text.includes("⚠️ Payment Warning:")) return text;
+			const paymentWarning = document.querySelector(".qb-payment-warning");
+			if (paymentWarning instanceof HTMLElement) {
+				return paymentWarning.textContent?.replace(/\s+/g, " ").trim()
+					|| "ERA payment allocations do not match.";
 			}
+
+			// Compatibility with detail pages rendered by an older extension build.
+			const warningNodes = Array.from(document.querySelectorAll("div, th, td, span"))
+				.map(node => node.textContent?.replace(/\s+/g, " ").trim() ?? "")
+				.filter(text => text.includes("Payment Warning:") && text.length <= 300)
+				.sort((a, b) => a.length - b.length);
+			if (warningNodes[0]) return warningNodes[0];
 
 			return "";
 		};
@@ -375,17 +381,22 @@ function onStorageChanged(event) {
  * @param {ExportState} state
  */
 function showResultsPopup(state) {
-	const rows = (state.results ?? state.rows ?? []).filter(row => row.invoiceItem !== "[SKIPPED]");
-	if (rows.length === 0) {
-		showPopup("No rows were found in QuickBooks Payment Entry.");
+	const allRows = state.results ?? state.rows ?? [];
+	const issues = allRows.filter(row => row.invoiceItem === "[SKIPPED]");
+	if (allRows.length === 0) {
+		const details = issues.map(formatCollectionIssue).join("\n");
+		showPopup(`No payments were collected.${details ? `\n\nIssues found:\n${details}` : ""}`);
 		return;
 	}
 
-	showInvoiceNumberPopup(rows);
+	showInvoiceNumberPopup(allRows, issues);
 }
 
-/** @param {SummaryRow[]} rows */
-function showInvoiceNumberPopup(rows) {
+/**
+ * @param {SummaryRow[]} rows
+ * @param {SummaryRow[]} [issues]
+ */
+function showInvoiceNumberPopup(rows, issues = []) {
 	const existing = document.getElementById("clc-era-export-test-popup");
 	if (existing) existing.remove();
 
@@ -417,9 +428,24 @@ function showInvoiceNumberPopup(rows) {
 	const form = document.createElement("form");
 	form.style.clear = "both";
 
+	if (issues.length > 0) {
+		const warning = document.createElement("div");
+		Object.assign(warning.style, {
+			marginBottom: "12px",
+			padding: "10px",
+			border: "1px solid #f0b429",
+			borderRadius: "6px",
+			background: "#fff7df",
+			color: "#7a4d00",
+			whiteSpace: "pre-wrap"
+		});
+		warning.textContent = `${issues.length} ERA issue${issues.length === 1 ? "" : "s"} need review:\n${issues.map(formatCollectionIssue).join("\n")}`;
+		form.appendChild(warning);
+	}
+
 	const label = document.createElement("label");
 	label.htmlFor = "clc-starting-invoice-number";
-	label.textContent = `Enter the first QBO invoice number for ${rows.length} collected line${rows.length === 1 ? "" : "s"}:`;
+	label.textContent = `Enter the first QBO invoice number for ${rows.length} ERA line${rows.length === 1 ? "" : "s"}:`;
 	label.style.display = "block";
 	label.style.marginBottom = "6px";
 
@@ -476,6 +502,13 @@ function showInvoiceNumberPopup(rows) {
 	wrap.appendChild(form);
 	document.body.appendChild(wrap);
 	input.focus();
+}
+
+/** @param {SummaryRow} issue */
+function formatCollectionIssue(issue) {
+	const eraNumber = issue.eraNumber?.trim() || "Unknown ERA";
+	const reason = issue.checkMemo?.trim() || "Unknown collection error.";
+	return `• ${eraNumber}: ${reason}`;
 }
 
 /**
@@ -635,6 +668,13 @@ function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
 		}
 
 		const invoiceDate = formatQboDate(row.invoiceDate ?? "");
+		if (row.invoiceItem === "[SKIPPED]") {
+			outputRows.push([
+				currentInvoiceNumber, "Therapy Notes", invoiceDate, invoiceDate, "Due Now", "", "",
+				"", "", "1", "", "", "", "", "", "", "", "", "", ""
+			]);
+			continue;
+		}
 		const taxable = row.taxRate.trim() !== "";
 		outputRows.push([
 			currentInvoiceNumber,

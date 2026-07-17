@@ -290,6 +290,7 @@ export async function injectPaymentSummary() {
 
 	if (totalsMismatch) {
 		const banner = document.createElement("div");
+		banner.className = "qb-payment-warning";
 		banner.style.background = "#fff3cd";
 		banner.style.color = "#856404";
 		banner.style.border = "1px solid #ffeeba";
@@ -299,7 +300,7 @@ export async function injectPaymentSummary() {
 		banner.style.fontWeight = "600";
 	
 		banner.textContent =
-			"⚠️ Payment Warning: Calculated allocations do not match the ERA payment amount. Please verify.";
+			"Payment Warning: Calculated allocations do not match the ERA payment amount. Please verify.";
 	
 		summaryTable.parentNode?.insertBefore(banner, summaryTable);
 	}	
