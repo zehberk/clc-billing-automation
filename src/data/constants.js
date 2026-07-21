@@ -32,6 +32,8 @@ export let LAS_CRUCES_TAX_RATE = 0.00;
 export let SANTA_FE_TAX_RATE = 0.00;
 export let LAS_CRUCES_TAX_RATE_LABEL = "";
 export let SANTA_FE_TAX_RATE_LABEL = "";
+export let LAS_CRUCES_TAX_QB_CODE = "";
+export let SANTA_FE_TAX_QB_CODE = "";
 /** @type {InvoiceItemMap} */
 export let PAYER_TO_INVOICE_ITEM_DATA = {};
 /** @type {{ [href: string]: string }} */
@@ -40,16 +42,18 @@ export const therapistNameCache = {};
 export const STORAGE_KEYS = {
 	INVOICE_ITEMS: "invoiceItems-v3",
 	SF_THERAPISTS: "sfTherapists",
-	TAX_RATES: "taxRates"
+	TAX_RATES: "taxRates-v2"
 };
 
 // Export updaters
-/** @param {{ lasCruces: number, santaFe: number, lasCrucesLabel?: string, santaFeLabel?: string }} param0 */
-export function setTaxRateVars({ lasCruces, santaFe, lasCrucesLabel, santaFeLabel }) {
+/** @param {{ lasCruces: number, santaFe: number, lasCrucesLabel?: string, santaFeLabel?: string, lasCrucesQbCode?: string, santaFeQbCode?: string }} param0 */
+export function setTaxRateVars({ lasCruces, santaFe, lasCrucesLabel, santaFeLabel, lasCrucesQbCode, santaFeQbCode }) {
 	LAS_CRUCES_TAX_RATE = lasCruces;
 	SANTA_FE_TAX_RATE = santaFe;
 	LAS_CRUCES_TAX_RATE_LABEL = lasCrucesLabel ?? `${lasCruces * 100}%`;
 	SANTA_FE_TAX_RATE_LABEL = santaFeLabel ?? `${santaFe * 100}%`;
+	LAS_CRUCES_TAX_QB_CODE = lasCrucesQbCode ?? "";
+	SANTA_FE_TAX_QB_CODE = santaFeQbCode ?? "";
 }
 /** @param {InvoiceItemMap} data */
 export function setInvoiceItems(data) {

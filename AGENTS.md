@@ -19,6 +19,16 @@ Keep the scope centered on automating CLC billing workflows, not building a gene
 - Preserve existing naming and structure unless there is a clear reason to change it.
 - Explain meaningful tradeoffs briefly, then make a recommendation.
 
+## Git commit messages
+
+- Follow Angular-style Conventional Commits: `type(scope): subject`.
+- Keep the subject line at 50 characters or fewer.
+- Wrap body lines at 72 characters or fewer.
+- Use an imperative, lowercase subject without a trailing period.
+- Use a blank line between the subject and body.
+- Prefer these types: `build`, `ci`, `docs`, `feat`, `fix`, `perf`,
+  `refactor`, `style`, and `test`.
+
 ## Architecture expectations
 
 - Keep business rules separate from UI code when practical.

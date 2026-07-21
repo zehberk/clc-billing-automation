@@ -35,7 +35,7 @@ export const ALL_READY = Promise.all([
 setLoadPromises(taxRatesReady, sfTherapistsReady, invoiceItemsReady);
 
 loadCsvWithCache(TAX_RATES_CSV_URL, STORAGE_KEYS.TAX_RATES, (data) => {
-	const result = { santaFe: 0, lasCruces: 0, santaFeLabel: "", lasCrucesLabel: "" };
+	const result = { santaFe: 0, lasCruces: 0, santaFeLabel: "", lasCrucesLabel: "", santaFeQbCode: "", lasCrucesQbCode: "" };
 	for (const row of data) {
 		const location = row["city"]?.toLowerCase();
 		const sourceRate = row["tax rate (%)"]?.trim() ?? "0";
@@ -44,10 +44,12 @@ loadCsvWithCache(TAX_RATES_CSV_URL, STORAGE_KEYS.TAX_RATES, (data) => {
 		if (location === "santa fe") {
 			result.santaFe = rate;
 			result.santaFeLabel = label;
+			result.santaFeQbCode = row["qb code"]?.trim() ?? "";
 		}
 		if (location === "las cruces") {
 			result.lasCruces = rate;
 			result.lasCrucesLabel = label;
+			result.lasCrucesQbCode = row["qb code"]?.trim() ?? "";
 		}
 	}
 	setTaxRateVars(result);

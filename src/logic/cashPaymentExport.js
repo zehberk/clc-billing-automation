@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import {
 	LAS_CRUCES_TAX_RATE,
-	LAS_CRUCES_TAX_RATE_LABEL,
+	LAS_CRUCES_TAX_QB_CODE,
 	taxRatesReady
 } from "../data/constants.js";
 import { calculateQboTaxableLine } from "./taxUtils.js";
@@ -90,11 +90,11 @@ function showImportDialog() {
 		try {
 			await taxRatesReady;
 			const payments = parseCashPaymentWorkbook(await selectedFile.arrayBuffer());
-			if (!LAS_CRUCES_TAX_RATE || !LAS_CRUCES_TAX_RATE_LABEL) {
-				throw new Error("The Las Cruces tax rate is unavailable. Refresh TherapyNotes and try again.");
+			if (!LAS_CRUCES_TAX_RATE || !LAS_CRUCES_TAX_QB_CODE) {
+				throw new Error("The Las Cruces tax rate or QB Code is unavailable. Refresh TherapyNotes and try again.");
 			}
 			downloadCsv(
-				buildCashPaymentCsv(payments, startingNumber, LAS_CRUCES_TAX_RATE, LAS_CRUCES_TAX_RATE_LABEL),
+				buildCashPaymentCsv(payments, startingNumber, LAS_CRUCES_TAX_RATE, LAS_CRUCES_TAX_QB_CODE),
 				`qbo-cash-payments-${startingNumber}.csv`
 			);
 			fileName.textContent = `${payments.length} payment${payments.length === 1 ? "" : "s"} exported.`;
@@ -135,9 +135,9 @@ export function parseCashPaymentWorkbook(arrayBuffer) {
  * @param {CashPayment[]} payments
  * @param {string} startingNumber
  * @param {number} taxRate
- * @param {string} taxRateLabel
+ * @param {string} taxRateQbCode
  */
-export function buildCashPaymentCsv(payments, startingNumber, taxRate, taxRateLabel) {
+export function buildCashPaymentCsv(payments, startingNumber, taxRate, taxRateQbCode) {
 	const first = BigInt(startingNumber);
 	const width = startingNumber.length;
 	const rows = [HEADERS];
@@ -147,7 +147,7 @@ export function buildCashPaymentCsv(payments, startingNumber, taxRate, taxRateLa
 		rows.push([
 			(first + BigInt(index)).toString().padStart(width, "0"), "Therapy Notes", payment.date, payment.date,
 			"Due Now", "", PRODUCT_SERVICE, "", "1", net.taxableAmount.toFixed(2),
-			net.taxableAmount.toFixed(2), "Y", taxRateLabel, "", "", "", "", "", ""
+			net.taxableAmount.toFixed(2), "Y", taxRateQbCode, "", "", "", "", "", ""
 		]);
 	});
 	return rows.map(row => row.map(escapeCsv).join(",")).join("\r\n") + "\r\n";

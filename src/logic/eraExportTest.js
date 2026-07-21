@@ -326,7 +326,7 @@ function extractSummaryRows(table) {
 			isInvoiceContinuation: row.dataset.clcInvoiceContinuation === "true",
 			invoiceItem: cells?.[0]?.textContent?.trim() ?? "",
 			totalAllocation: cells?.[1]?.textContent?.trim() ?? "",
-			taxRate: cells?.[2]?.textContent?.trim() ?? "",
+			taxRate: row.dataset.clcTaxCode ?? "",
 			invoiceRate: cells?.[3]?.textContent?.trim() ?? "",
 			checkMemo: cells?.[4]?.textContent?.trim() ?? "",
 			paymentMethod: paymentMethods[index] ?? ""
@@ -753,7 +753,7 @@ function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
 			formatQboAmount(row.invoiceRate),
 			formatQboAmount(row.invoiceRate),
 			taxable ? "Y" : "N",
-			taxable ? formatTaxRate(row.taxRate) : "",
+			taxable ? row.taxRate.trim() : "",
 			"", "", "", "", "", ""
 		]);
 	}
@@ -765,12 +765,6 @@ function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
 function formatQboAmount(value) {
 	const amount = parseMoney(value);
 	return amount == null ? "" : amount.toFixed(2);
-}
-
-/** @param {string} value */
-function formatTaxRate(value) {
-	const trimmed = value.trim();
-	return trimmed.endsWith("%") ? trimmed : `${trimmed}%`;
 }
 
 /** @param {string} value */

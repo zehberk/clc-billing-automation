@@ -4,6 +4,8 @@ import {
 	LAS_CRUCES_TAX_RATE,
 	SANTA_FE_TAX_RATE_LABEL,
 	LAS_CRUCES_TAX_RATE_LABEL,
+	SANTA_FE_TAX_QB_CODE,
+	LAS_CRUCES_TAX_QB_CODE,
 	getUseMedicareOverride,
 	getUseGehaOverride
 } from "../data/constants.js";
@@ -38,26 +40,29 @@ export function calculatePaymentBeforeTax(allocation, fullName, payerName) {
 			adjustedRate: allocation,
 			locationTag: null,
 			taxRate: null,
-			taxRateLabel: ""
+			taxRateLabel: "",
+			taxRateQbCode: ""
 		};
 	}
 	
 	let locationTag = null;
 	let taxRate = null;	
 	let taxRateLabel = "";
+	let taxRateQbCode = "";
 	const isTaxable = isInvoiceItemTaxable(payerName);
 
 	if (isTaxable) {
 		locationTag = getTherapistLocation(fullName);
 		taxRate = locationTag === "Santa Fe" ? SANTA_FE_TAX_RATE : LAS_CRUCES_TAX_RATE;
 		taxRateLabel = locationTag === "Santa Fe" ? SANTA_FE_TAX_RATE_LABEL : LAS_CRUCES_TAX_RATE_LABEL;
+		taxRateQbCode = locationTag === "Santa Fe" ? SANTA_FE_TAX_QB_CODE : LAS_CRUCES_TAX_QB_CODE;
 	}
 
 	const adjustedRate = taxRate
 		? +(allocation / (1 + taxRate))//.toFixed(2)
 		: allocation;
 
-	return { adjustedRate, locationTag, taxRate, taxRateLabel };
+	return { adjustedRate, locationTag, taxRate, taxRateLabel, taxRateQbCode };
 }
 
 /**

@@ -5,8 +5,8 @@ import { calculatePaymentBeforeTax, calculateQboTaxableLine } from "../logic/tax
 import { getPaymentField } from "../logic/paymentFields.js";
 import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 
-/** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, payerName: string, locationTag: string | null }} SummaryEntry */
-/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, payerName: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
+/** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, taxRateQbCode: string, payerName: string, locationTag: string | null }} SummaryEntry */
+/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, taxRateQbCode?: string, payerName: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
 /** @typedef {{ [itemKey: string]: ItemTotal }} ItemTotalsMap */
 
 /** @param {string | null | undefined} primary */
@@ -131,7 +131,7 @@ export async function injectPaymentSummary() {
 		if (fullName) lastTherapist = fullName;
 
 		// Tax/location calc (this sets locationTag based on the invoice item's taxable flag)
-		let { adjustedRate, locationTag, taxRate, taxRateLabel } =
+		let { adjustedRate, locationTag, taxRate, taxRateLabel, taxRateQbCode } =
 			calculatePaymentBeforeTax(allocation, fullName, payerName);
 
 		// Group key keeps taxable rows together by location
@@ -143,6 +143,7 @@ export async function injectPaymentSummary() {
 			invoiceRate: adjustedRate,
 			taxRate,
 			taxRateLabel,
+			taxRateQbCode,
 			payerName,
 			locationTag
 		});
@@ -152,13 +153,14 @@ export async function injectPaymentSummary() {
 	/** @type {ItemTotalsMap} */
 	const itemTotalsMap = {};
 	for (const entry of entries) {
-		const { itemKey, allocation, invoiceRate, taxRate, taxRateLabel, payerName } = entry;
+		const { itemKey, allocation, invoiceRate, taxRate, taxRateLabel, taxRateQbCode, payerName } = entry;
 		if (!itemTotalsMap[itemKey]) {
 			itemTotalsMap[itemKey] = {
 				totalAllocation: 0,
 				invoiceRate: 0,
 				taxRate,
 				taxRateLabel,
+				taxRateQbCode,
 				payerName
 			};
 		}
@@ -166,6 +168,7 @@ export async function injectPaymentSummary() {
 		itemTotalsMap[itemKey].invoiceRate += invoiceRate;
 		itemTotalsMap[itemKey].taxRate = taxRate;
 		itemTotalsMap[itemKey].taxRateLabel = taxRateLabel;
+		itemTotalsMap[itemKey].taxRateQbCode = taxRateQbCode;
 	}
 
 	// QBO calculates tax from the cent-rounded, aggregated taxable line. Match
@@ -230,14 +233,14 @@ export async function injectPaymentSummary() {
 	let bodyRows = "";
 	const rowPaymentMethods = [];
 	for (const [itemKey, data] of sortedEntries) {
-		const { totalAllocation, invoiceRate, taxRate, taxRateLabel, payerName } = data;
+		const { totalAllocation, invoiceRate, taxRate, taxRateLabel, taxRateQbCode, payerName } = data;
 		const item = data.invoiceItem ?? itemKey;
 		const checknum = resolveCheckMemo(payerName, transactionId);
 		const paymentMethod = resolvePaymentMethod(payerName);
 		rowPaymentMethods.push(paymentMethod);
 
 		bodyRows += `
-			<tr style="background-color: #f9fef9;"${data.roundingFor != null ? ' data-clc-tax-rounding="true"' : ''}${data.roundingFor != null || data.continuationFor != null ? ' data-clc-invoice-continuation="true"' : ''}>
+			<tr style="background-color: #f9fef9;"${taxRateQbCode ? ` data-clc-tax-code="${taxRateQbCode}"` : ""}${data.roundingFor != null ? ' data-clc-tax-rounding="true"' : ''}${data.roundingFor != null || data.continuationFor != null ? ' data-clc-invoice-continuation="true"' : ''}>
 				<td style="padding: 6px;">${item}</td>
 				<td style="padding: 6px; text-align: right;">$${totalAllocation.toFixed(2)}</td>
 				<td style="padding: 6px; text-align: right;">${taxRate != null ? (taxRateLabel || `${taxRate * 100}%`) : ""}</td>
