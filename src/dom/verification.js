@@ -30,38 +30,100 @@ export function injectPaymentVerifier(targetNode) {
 
 	container.innerHTML = `
 		<strong>Verify Payment Amounts</strong><br>
-		<textarea id="paymentPaste" style="width:300px;height:80px;"></textarea><br>
-		<button id="verifyPaymentsBtn" type="button" style="margin-top:6px;">Verify</button>
-        <span id="verifyResult" style="margin-left:10px;"></span>
+		<label id="paymentFileDrop" style="display:inline-block;margin-top:7px;padding:10px 14px;border:2px dashed #7994a8;border-radius:6px;background:#f7fafc;cursor:pointer;text-align:center;">
+			<strong>Drop the QuickBooks payment report here</strong><br>
+			<small>or click to select an .xlsx, .xls, or .csv file</small>
+			<input id="paymentFileInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+		</label><br>
+		<span id="paymentFileName" style="display:inline-block;min-height:18px;margin-top:4px;color:#425466;"></span><br>
+		<span id="verifyResult"></span>
 	`;
 
-    // Style the button so it looks more like a button and not just text
-    const btn = /** @type {HTMLButtonElement} */ (container.querySelector("#verifyPaymentsBtn"));
-    btn.style.padding = "6px 12px";
-    btn.style.border = "1px solid #666";
-    btn.style.borderRadius = "4px";
-    btn.style.background = "#ddd";
-    btn.style.cursor = "pointer";
-	btn.onclick = verifyPayments;
+	const drop = /** @type {HTMLLabelElement | null} */ (container.querySelector("#paymentFileDrop"));
+	const fileInput = /** @type {HTMLInputElement | null} */ (container.querySelector("#paymentFileInput"));
+	if (drop && fileInput) {
+		fileInput.addEventListener("change", () => importPaymentFile(fileInput.files?.[0]));
+		drop.addEventListener("dragover", event => {
+			event.preventDefault();
+			drop.style.background = "#e8f3fb";
+		});
+		drop.addEventListener("dragleave", () => { drop.style.background = "#f7fafc"; });
+		drop.addEventListener("drop", event => {
+			event.preventDefault();
+			drop.style.background = "#f7fafc";
+			importPaymentFile((/** @type {DragEvent} */ (event)).dataTransfer?.files?.[0]);
+		});
+	}
 
 	targetNode.insertAdjacentElement("afterend", container);
     // enableRowTransitions();
 }
 
-function verifyPayments() {
-	const pasted = getPastedValues();
+/** @param {File | null | undefined} file */
+async function importPaymentFile(file) {
+	if (!file) return;
+	const fileName = document.getElementById("paymentFileName");
+	const resultSpan = document.getElementById("verifyResult");
+	try {
+		const amounts = parsePaymentReportWorkbook(await file.arrayBuffer());
+		if (fileName) fileName.textContent = `${file.name}: ${amounts.length} payments loaded.`;
+		verifyPayments(amounts);
+	} catch (caught) {
+		if (fileName) fileName.textContent = file.name;
+		if (resultSpan) {
+			resultSpan.textContent = caught instanceof Error ? caught.message : String(caught);
+			resultSpan.style.color = "red";
+		}
+	}
+}
+
+/**
+ * @param {ArrayBuffer | Uint8Array} arrayBuffer
+ * @returns {number[]}
+ */
+export function parsePaymentReportWorkbook(arrayBuffer) {
+	const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
+	const sheet = workbook.Sheets[workbook.SheetNames[0]];
+	if (!sheet) throw new Error("The workbook does not contain a worksheet.");
+	const rows = /** @type {unknown[][]} */ (XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false }));
+	const headerIndex = rows.findIndex(row =>
+		row.some(value => normalizeHeader(value) === "transaction type") &&
+		row.some(value => normalizeHeader(value) === "amount")
+	);
+	if (headerIndex < 0) throw new Error("Could not find the Transaction type and Amount columns.");
+	const header = rows[headerIndex];
+	const typeColumn = header.findIndex(value => normalizeHeader(value) === "transaction type");
+	const amountColumn = header.findIndex(value => normalizeHeader(value) === "amount");
+	const amounts = [];
+	for (let index = headerIndex + 1; index < rows.length; index += 1) {
+		const row = rows[index];
+		if (normalizeHeader(row[typeColumn]) !== "payment") continue;
+		const cents = parseMoneyToCents(String(row[amountColumn] ?? ""));
+		if (cents == null) throw new Error(`Payment row ${index + 1} has an invalid amount.`);
+		if (cents !== 0) amounts.push(cents);
+	}
+	if (amounts.length === 0) throw new Error("No payment rows were found in the report.");
+	return amounts;
+}
+
+/** @param {unknown} value */
+function normalizeHeader(value) {
+	return String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** @param {number[]} importedPayments */
+function verifyPayments(importedPayments) {
 	const pageValues = getEraPaymentsFromTable();
 
     // Clear previous state
 	clearRowHighlights();
-	const verifyBtn = document.getElementById("verifyPaymentsBtn");
-	const box = verifyBtn?.parentElement;
+	const box = document.getElementById("DivPaymentVerification");
 	const resultSpan = document.getElementById("verifyResult");
 	if (!box || !(resultSpan instanceof HTMLSpanElement)) return;
 	resultSpan.textContent = "";
 	box.style.background = "#eee";
 
-	const result = compareLists(pasted, pageValues);
+	const result = compareLists(importedPayments, pageValues);
 
 	if (result.match) {
 		// SUCCESS STATE
@@ -79,7 +141,7 @@ function verifyPayments() {
 	resultSpan.style.color = "red";
 
 	if (result.type == "tooMany") {
-		resultSpan.textContent = "Pasted too many entries.";
+		resultSpan.textContent = "The imported report contains payments not found on this page.";
 		return;
 	}
 	
@@ -100,18 +162,10 @@ function parseMoney(value) {
 	return Number.isNaN(num) ? undefined : num;
 }
 
-/** @returns {number[]} */
-function getPastedValues() {
-	const textArea = /** @type {HTMLTextAreaElement} */ (
-		document.getElementById("paymentPaste")
-	);
-	if (!textArea) return [];
-	const text = textArea.value.trim();
-
-	return text
-		.split("\n")
-		.map(v => parseMoney(v.trim()))
-		.filter((v) => v !== undefined);
+/** @param {string} value @returns {number | undefined} */
+function parseMoneyToCents(value) {
+	const amount = parseMoney(value);
+	return amount == null ? undefined : Math.round(amount * 100);
 }
 
 /** @returns {number[]} */
@@ -132,7 +186,7 @@ function getEraPaymentsFromTable() {
 
 
 		const raw = (paymentCell.textContent ?? "").trim();
-		const num = parseMoney(raw);
+		const num = parseMoneyToCents(raw);
 
 		if (num === undefined || num === 0) return; // skip $0 entries
 
@@ -148,44 +202,21 @@ function getEraPaymentsFromTable() {
  * @returns {CompareResult}
  */
 function compareLists(a, b) {
-	/** @type {CompareIssue[]} */
-	const issues = [];
-
-	// If QB has too many entries, error out early (this part is fine)
-	if (a.length > b.length) {
-		return { match: false, type: "tooMany", indices: [] };
+	const available = new Map();
+	for (const value of a) available.set(value, (available.get(value) ?? 0) + 1);
+	const missing = [];
+	for (let index = 0; index < b.length; index += 1) {
+		const value = b[index];
+		const count = available.get(value) ?? 0;
+		if (count > 0) available.set(value, count - 1);
+		else missing.push(index);
 	}
-    
-	// Case: QB is missing entries
-	if (a.length < b.length) {
-		const missing = [];
-		for (let i = a.length; i < b.length; i++) {
-			missing.push(i);
-		}
-		issues.push({ type: "missing", indices: missing });
-	}
-
-	// Compare up to the shortest length
-	const len = Math.min(a.length, b.length);
-	const valueMismatches = [];
-
-	for (let i = 0; i < len; i++) {
-		if (a[i] !== b[i]) {
-			valueMismatches.push(i);
-		}
-	}
-
-	if (valueMismatches.length > 0) {
-		issues.push({ type: "valueMismatch", indices: valueMismatches });
-	}
-
-	// If nothing went wrong:
-	if (issues.length === 0) {
+	const extraCount = Array.from(available.values()).reduce((sum, count) => sum + count, 0);
+	if (missing.length === 0 && extraCount === 0) {
 		return { match: true, type: "success", indices: [] };
 	}
-
-	// Otherwise return all issues
-	return { match: false, type: "multiple", issues };
+	if (missing.length === 0) return { match: false, type: "tooMany", indices: [] };
+	return { match: false, type: "multiple", issues: [{ type: "missing", indices: missing }] };
 }
 
 function clearRowHighlights() {
@@ -224,8 +255,9 @@ function getFilteredRows() {
 		if (!paymentCell) return false;
 
 		const raw = (paymentCell.textContent ?? "").trim();
-		const num = parseMoney(raw);
+		const num = parseMoneyToCents(raw);
 		
 		return num !== undefined && num !== 0; // same rule as getEraPaymentsFromTable
 	});
 }
+import * as XLSX from "xlsx";
