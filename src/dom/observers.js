@@ -25,6 +25,57 @@ export function waitForElement(selector, callback) {
 	observer.observe(document.body, { childList: true, subtree: true });
 }
 
+/**
+ * Wait for the primary element, using the fallback only when the primary does
+ * not appear shortly after the fallback is rendered.
+ *
+ * @param {string} primarySelector
+ * @param {string} fallbackSelector
+ * @param {(el: Element) => void} callback
+ * @param {number} fallbackDelayMs
+ */
+export function waitForPreferredElement(primarySelector, fallbackSelector, callback, fallbackDelayMs = 1500) {
+	/** @type {number | null} */
+	let fallbackTimer = null;
+
+	const primary = document.querySelector(primarySelector);
+	if (primary) {
+		callback(primary);
+		return;
+	}
+
+	const observer = new MutationObserver(check);
+
+	/** @param {Element} el */
+	function finish(el) {
+		if (fallbackTimer != null) clearTimeout(fallbackTimer);
+		observer.disconnect();
+		callback(el);
+	}
+
+	function check() {
+		const preferred = document.querySelector(primarySelector);
+		if (preferred) {
+			finish(preferred);
+			return;
+		}
+
+		const fallback = document.querySelector(fallbackSelector);
+		if (!fallback || fallbackTimer != null) return;
+
+		fallbackTimer = window.setTimeout(() => {
+			const latestPreferred = document.querySelector(primarySelector);
+			const latestFallback = document.querySelector(fallbackSelector);
+			const latest = latestPreferred ?? latestFallback;
+			if (latest) finish(latest);
+			else fallbackTimer = null;
+		}, fallbackDelayMs);
+	}
+
+	observer.observe(document.body, { childList: true, subtree: true });
+	check();
+}
+
 export function attachEraClickHandlers() {
 	const links = document.querySelectorAll("a[href*='DisplayContext=PaymentStaticView']");
 	links.forEach(link => {

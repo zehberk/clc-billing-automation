@@ -4,11 +4,10 @@
 		"module": "ESNext",
 		"checkJs": true,
 		"allowJs": true,
-		"moduleResolution": "node",
-		"baseUrl": "./",
+		"moduleResolution": "bundler",
 		"ignoreDeprecations": "6.0",
 		"paths": {
-			"*": ["src/*"]
+			"*": ["./src/*"]
 		}
 	},
 	"include": ["src"]

@@ -6,7 +6,7 @@ import { getPaymentField } from "../logic/paymentFields.js";
 import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 
 /** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, payerName: string, locationTag: string | null }} SummaryEntry */
-/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, payerName: string, invoiceItem?: string, roundingFor?: string }} ItemTotal */
+/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, payerName: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
 /** @typedef {{ [itemKey: string]: ItemTotal }} ItemTotalsMap */
 
 /** @param {string | null | undefined} primary */
@@ -193,24 +193,24 @@ export async function injectPaymentSummary() {
 	// -------- Adjustments --------
 	const adjustmentTotal = getAdjustmentTotal();
 	if (adjustmentTotal !== 0) {
-		// When the payment already has a non-taxable item, the adjustment belongs
-		// to that company/item. Otherwise create a separate untaxed payer item so
-		// taxable allocations remain untouched.
-		let adjustmentItem = Object.entries(itemTotalsMap).find(
-			([, data]) => data.taxRate == null && data.roundingFor == null
-		)?.[1];
-
-		if (!adjustmentItem) {
-			const adjustmentPayer = pageLevelPayer || lastPayer || "Payment Adjustment";
-			const adjustmentItemKey = formatInvoiceItem(adjustmentPayer, null);
-			adjustmentItem = itemTotalsMap[adjustmentItemKey] ?? {
-				totalAllocation: 0,
-				invoiceRate: 0,
-				taxRate: null,
-				payerName: adjustmentPayer
-			};
-			itemTotalsMap[adjustmentItemKey] = adjustmentItem;
-		}
+		// Adjustments are always untaxed. Prefer the resolved payer from a taxable
+		// allocation so its spreadsheet-configured non-taxable invoice item is
+		// used instead of the page-level payer shown in the payment header.
+		const taxableEntry = entries.find(entry =>
+			entry.taxRate != null && getNonTaxableInvoiceItem(entry.payerName)
+		);
+		const adjustmentPayer = taxableEntry?.payerName || lastPayer || pageLevelPayer || "Payment Adjustment";
+		const nonTaxableInvoiceItem = getNonTaxableInvoiceItem(adjustmentPayer);
+		const adjustmentItemKey = nonTaxableInvoiceItem || formatInvoiceItem(adjustmentPayer, null);
+		const adjustmentItem = itemTotalsMap[adjustmentItemKey] ?? {
+			totalAllocation: 0,
+			invoiceRate: 0,
+			taxRate: null,
+			payerName: adjustmentPayer,
+			invoiceItem: nonTaxableInvoiceItem,
+			continuationFor: taxableEntry?.itemKey
+		};
+		itemTotalsMap[adjustmentItemKey] = adjustmentItem;
 
 		adjustmentItem.totalAllocation += adjustmentTotal;
 		adjustmentItem.invoiceRate += adjustmentTotal;
@@ -222,9 +222,9 @@ export async function injectPaymentSummary() {
 	summaryTable.className = "qb-summary-table";
 
 	const sortedEntries = Object.entries(itemTotalsMap).sort(([aKey, a], [bKey, b]) => {
-		const anchorComparison = (a.roundingFor ?? aKey).localeCompare(b.roundingFor ?? bKey);
+		const anchorComparison = (a.roundingFor ?? a.continuationFor ?? aKey).localeCompare(b.roundingFor ?? b.continuationFor ?? bKey);
 		if (anchorComparison !== 0) return anchorComparison;
-		return Number(a.roundingFor != null) - Number(b.roundingFor != null);
+		return Number(a.roundingFor != null || a.continuationFor != null) - Number(b.roundingFor != null || b.continuationFor != null);
 	});
 
 	let bodyRows = "";
@@ -237,7 +237,7 @@ export async function injectPaymentSummary() {
 		rowPaymentMethods.push(paymentMethod);
 
 		bodyRows += `
-			<tr style="background-color: #f9fef9;"${data.roundingFor != null ? ' data-clc-tax-rounding="true"' : ''}>
+			<tr style="background-color: #f9fef9;"${data.roundingFor != null ? ' data-clc-tax-rounding="true"' : ''}${data.roundingFor != null || data.continuationFor != null ? ' data-clc-invoice-continuation="true"' : ''}>
 				<td style="padding: 6px;">${item}</td>
 				<td style="padding: 6px; text-align: right;">$${totalAllocation.toFixed(2)}</td>
 				<td style="padding: 6px; text-align: right;">${taxRate != null ? (taxRateLabel || `${taxRate * 100}%`) : ""}</td>

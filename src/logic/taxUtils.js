@@ -98,6 +98,11 @@ export function calculateQboTaxableLine(grossAmount, taxRate) {
 			Math.abs(candidate.differenceCents) < Math.abs(best.differenceCents) ||
 			(
 				Math.abs(candidate.differenceCents) === Math.abs(best.differenceCents) &&
+				candidate.differenceCents >= 0 && best.differenceCents < 0
+			) ||
+			(
+				Math.abs(candidate.differenceCents) === Math.abs(best.differenceCents) &&
+				(candidate.differenceCents >= 0) === (best.differenceCents >= 0) &&
 				Math.abs(offset) < Math.abs(best.offset)
 			)
 		) {

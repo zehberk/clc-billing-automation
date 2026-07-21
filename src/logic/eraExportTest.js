@@ -10,8 +10,8 @@ const LOG_PREFIX = "[CLC][ERA Export Test]";
 const SUMMARY_TIMEOUT_MS = 45000;
 
 /**
- * @typedef {{ eraNumber: string, received: string, payer: string, href: string }} EraEntry
- * @typedef {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, isTaxRounding?: boolean, invoiceItem: string, totalAllocation: string, invoiceRate: string, taxRate: string, checkMemo: string, paymentMethod: string }} SummaryRow
+ * @typedef {{ eraNumber: string, received: string, payer: string, href: string, paymentAmountCents: number }} EraEntry
+ * @typedef {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, expectedPaymentAmountCents?: number, isTaxRounding?: boolean, isInvoiceContinuation?: boolean, invoiceItem: string, totalAllocation: string, invoiceRate: string, taxRate: string, checkMemo: string, paymentMethod: string }} SummaryRow
  * @typedef {{
  *  mode: "single-era-test",
  *  runId: string,
@@ -105,8 +105,8 @@ function getEligibleEraRows() {
 			const payer = cells?.[2]?.textContent?.trim() ?? "";
 			const payment = parseMoney(cells?.[3]?.textContent?.trim() ?? "");
 			const href = link.getAttribute("href") ?? "";
-			if (!row || !href || payment === 0 || EXCLUDED_PAYERS.has(payer)) return null;
-			return { row, era: { eraNumber, received, payer, href } };
+			if (!row || !href || payment == null || payment === 0 || EXCLUDED_PAYERS.has(payer)) return null;
+			return { row, era: { eraNumber, received, payer, href, paymentAmountCents: Math.round(payment * 100) } };
 		})
 		.filter(entry => entry !== null);
 }
@@ -323,6 +323,7 @@ function extractSummaryRows(table) {
 		const cells = row.querySelectorAll("td");
 		return {
 			isTaxRounding: row.dataset.clcTaxRounding === "true",
+			isInvoiceContinuation: row.dataset.clcInvoiceContinuation === "true",
 			invoiceItem: cells?.[0]?.textContent?.trim() ?? "",
 			totalAllocation: cells?.[1]?.textContent?.trim() ?? "",
 			taxRate: cells?.[2]?.textContent?.trim() ?? "",
@@ -347,7 +348,8 @@ function onStorageChanged(event) {
 		const eraNumber = state.era?.eraNumber ?? "";
 		const invoiceDate = state.era?.received ?? "";
 		const eraIndex = state.currentIndex ?? 0;
-		const appendedRows = eraRows.map(row => ({ ...row, eraNumber, invoiceDate, eraIndex }));
+		const expectedPaymentAmountCents = state.era?.paymentAmountCents;
+		const appendedRows = eraRows.map(row => ({ ...row, eraNumber, invoiceDate, eraIndex, expectedPaymentAmountCents }));
 		advanceToNextEra(state, appendedRows);
 		return;
 	}
@@ -485,6 +487,12 @@ function showInvoiceNumberPopup(rows, issues = []) {
 
 	form.addEventListener("submit", event => {
 		event.preventDefault();
+		const validationErrors = getPaymentTotalValidationErrors(rows);
+		if (validationErrors.length > 0) {
+			error.style.whiteSpace = "pre-wrap";
+			error.textContent = `CSV not created. Payment totals failed validation:\n${validationErrors.join("\n")}`;
+			return;
+		}
 		const startingInvoiceNumber = input.value.trim();
 		if (!/^\d+$/.test(startingInvoiceNumber)) {
 			error.textContent = "The starting invoice number must contain digits only.";
@@ -512,8 +520,63 @@ function formatCollectionIssue(issue) {
 }
 
 /**
- * @param {string} text
+ * Verifies each collected ERA against the independent payment amount captured
+ * from the ERA list before CSV generation.
+ *
+ * @param {SummaryRow[]} rows
+ * @returns {string[]}
  */
+function getPaymentTotalValidationErrors(rows) {
+	const collectedRows = rows.filter(row => row.invoiceItem !== "[SKIPPED]");
+	/** @type {Map<string, { eraNumber: string, expectedCents: number | undefined, actualCents: number, invalidAmount: boolean }>} */
+	const totalsByEra = new Map();
+
+	for (const row of collectedRows) {
+		const key = `${row.eraIndex ?? "unknown"}:${row.eraNumber ?? ""}`;
+		let total = totalsByEra.get(key);
+		if (!total) {
+			total = {
+				eraNumber: row.eraNumber?.trim() || "Unknown ERA",
+				expectedCents: row.expectedPaymentAmountCents,
+				actualCents: 0,
+				invalidAmount: false
+			};
+			totalsByEra.set(key, total);
+		}
+
+		const allocationCents = parseMoneyToCents(row.totalAllocation);
+		if (allocationCents == null) total.invalidAmount = true;
+		else total.actualCents += allocationCents;
+	}
+
+	const errors = [];
+	for (const total of totalsByEra.values()) {
+		if (total.expectedCents == null || !Number.isInteger(total.expectedCents)) {
+			errors.push(`- ${total.eraNumber}: original ERA payment amount is missing.`);
+		} else if (total.invalidAmount) {
+			errors.push(`- ${total.eraNumber}: one or more allocation amounts are invalid.`);
+		} else if (total.actualCents !== total.expectedCents) {
+			errors.push(
+				`- ${total.eraNumber}: allocations total ${formatMoneyFromCents(total.actualCents)}, ` +
+				`but the ERA payment is ${formatMoneyFromCents(total.expectedCents)}.`
+			);
+		}
+	}
+	return errors;
+}
+
+/** @param {string} value @returns {number | undefined} */
+function parseMoneyToCents(value) {
+	const amount = parseMoney(value);
+	return amount == null ? undefined : Math.round(amount * 100);
+}
+
+/** @param {number} cents */
+function formatMoneyFromCents(cents) {
+	return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+/** @param {string} text */
 function showPopup(text) {
 	const existing = document.getElementById("clc-era-export-test-popup");
 	if (existing) existing.remove();
@@ -661,7 +724,7 @@ function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
 	const outputRows = [QBO_CSV_HEADERS];
 
 	for (const row of rows) {
-		const isFirstInvoiceLine = !row.isTaxRounding || currentInvoiceNumber === "";
+		const isFirstInvoiceLine = !row.isInvoiceContinuation || currentInvoiceNumber === "";
 		if (isFirstInvoiceLine) {
 			currentInvoiceNumber = (firstNumber + nextOffset).toString().padStart(numberWidth, "0");
 			nextOffset += 1n;

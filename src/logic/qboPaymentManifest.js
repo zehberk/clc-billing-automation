@@ -3,7 +3,7 @@
  * One TherapyNotes ERA is one payment, and invoiceSelections explicitly lists
  * every QBO invoice that must be selected for that payment.
  *
- * @param {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, isTaxRounding?: boolean, totalAllocation: string, checkMemo: string, paymentMethod: string }[]} rows
+ * @param {{ eraNumber?: string, invoiceDate?: string, eraIndex?: number, isInvoiceContinuation?: boolean, totalAllocation: string, checkMemo: string, paymentMethod: string }[]} rows
  * @param {string} startingInvoiceNumber
  */
 export function createQboPaymentManifest(rows, startingInvoiceNumber) {
@@ -13,7 +13,7 @@ export function createQboPaymentManifest(rows, startingInvoiceNumber) {
 	let currentInvoice;
 
 	for (const row of rows) {
-		if (!row.isTaxRounding || !currentInvoice) {
+		if (!row.isInvoiceContinuation || !currentInvoice) {
 			currentInvoice = {
 				invoiceNumber: (firstNumber + BigInt(invoices.length)).toString().padStart(numberWidth, "0"),
 				eraNumber: row.eraNumber ?? "",

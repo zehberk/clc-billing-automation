@@ -222,13 +222,6 @@ async function setNativeInputValue(input, value) {
 	return input.value === value;
 }
 
-/** @param {HTMLInputElement} input @param {string} value */
-async function setMoneyInputValue(input, value) {
-	await setNativeInputValue(input, normalizeMoney(value));
-	await nextFrame();
-	return readMoneyInput(input);
-}
-
 /** @param {string} methodName */
 async function selectPaymentMethod(methodName) {
 	if (!methodName) throw new Error("The saved payment method is empty.");

@@ -4,6 +4,7 @@ const STORAGE_KEY = "clc-payment-demo-progress-v1";
 
 // Invoice numbers and amounts come from qbo-invoices-67203 (2).csv.
 // Grouping, methods, memos, and ERA numbers are intentionally dummy demo data.
+/** @type {{ era: string, invoices: string[], amount: number, date: string, method: string, memo: string }[]} */
 const payments = [
 	{ era: "DEMO-ERA-1001", invoices: ["67203", "67204"], amount: 801.54, date: "07/11/2026", method: "EFT", memo: "MEDICARE" },
 	{ era: "DEMO-ERA-1002", invoices: ["67205"], amount: 230.73, date: "07/11/2026", method: "EFT", memo: "HUMANA" },
@@ -15,7 +16,10 @@ const payments = [
 ];
 
 let state = readState();
-const app = document.querySelector("#app");
+const appElement = document.querySelector("#app");
+if (!(appElement instanceof HTMLElement)) throw new Error("Payment demo app container was not found.");
+/** @type {HTMLElement} */
+const app = appElement;
 
 function readState() {
 	try {
@@ -29,10 +33,12 @@ function saveState() {
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+/** @param {number} value */
 function money(value) {
 	return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+/** @param {string} label @param {string} value */
 function copyButton(label, value) {
 	return `<button class="copy" type="button" data-copy="${value}" aria-label="Copy ${label}">Copy</button>`;
 }
@@ -73,6 +79,7 @@ function render() {
 }
 
 app.addEventListener("click", async event => {
+	if (!(event.target instanceof Element)) return;
 	const button = event.target.closest("button");
 	if (!button) return;
 	if (button.dataset.copy) {
@@ -91,7 +98,7 @@ app.addEventListener("click", async event => {
 	if (action === "flag") {
 		state.flagged = state.flagged || [];
 		state.flagged = state.flagged.includes(state.index)
-			? state.flagged.filter(index => index !== state.index)
+			? state.flagged.filter(/** @param {number} index */ index => index !== state.index)
 			: [...state.flagged, state.index];
 	}
 	if (action === "reset") state = { index: 0, completed: [], flagged: [] };

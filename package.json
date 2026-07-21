@@ -1,6 +1,6 @@
 {
 	"name": "era-extension",
-	"version": "1.4.1-build.2",
+	"version": "1.4.2-build.0",
 	"type": "module",
 	"scripts": {
 		"build": "node scripts/bump-version.mjs build && npm run build:dist",

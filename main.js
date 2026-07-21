@@ -52,7 +52,7 @@ import { injectSharedStyles } from "./src/dom/styles.js";
 import { injectPaymentVerifier } from "./src/dom/verification.js";
 import { getEraPayerByHref, isEraPaymentDetailHref, normalizeHref } from "./src/logic/hrefUtils.js";
 import { getPaymentField } from "./src/logic/paymentFields.js";
-import { waitForElement, attachEraClickHandlers } from "./src/dom/observers.js";
+import { waitForPreferredElement, attachEraClickHandlers } from "./src/dom/observers.js";
 import { autoSelectInvoiceCustomer } from "./src/dom/invoiceCustomer.js";
 import { initEraExportTest } from "./src/logic/eraExportTest.js";
 import { initReceivePaymentAutomation } from "./src/dom/recvPaymentExperiment.js";
@@ -103,7 +103,7 @@ function startInvoiceAutoSelectWatcher() {
 	startDomObserver();
 }
 
-waitForElement("#BillingTransactionsTableList, #AdjustmentsTableList", () => {
+waitForPreferredElement("#BillingTransactionsTableList", "#AdjustmentsTableList", () => {
 	if (!isEraPaymentDetailHref(window.location.href)) return;
 
 	injectSharedStyles();
