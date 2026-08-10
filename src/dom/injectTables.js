@@ -1,12 +1,12 @@
 import { therapistNameCache, USE_SECONDARY_PAYER  } from "../data/constants.js";
 import { resolveTherapistName, parseAllocation } from "../logic/rowUtils.js";
-import { normalizePayerName, formatInvoiceItem, resolveCheckMemo, resolvePaymentMethod, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
+import { normalizePayerName, formatInvoiceItem, formatEraInvoiceItem, resolveCheckMemo, resolvePaymentMethod, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
 import { calculatePaymentBeforeTax, calculateQboTaxableLine } from "../logic/taxUtils.js";
 import { getPaymentField } from "../logic/paymentFields.js";
 import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 
-/** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, taxRateQbCode: string, payerName: string, locationTag: string | null }} SummaryEntry */
-/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, taxRateQbCode?: string, payerName: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
+/** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, taxRateQbCode: string, payerName: string, checkMemoPayer?: string, locationTag: string | null }} SummaryEntry */
+/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, taxRateQbCode?: string, payerName: string, checkMemoPayer?: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
 /** @typedef {{ [itemKey: string]: ItemTotal }} ItemTotalsMap */
 
 /** @param {string | null | undefined} primary */
@@ -84,6 +84,7 @@ export async function injectPaymentSummary() {
 	let lastTherapist = null;
 	/** @type {string | null} */
 	let lastPayer = null;
+	let eraInvoicePayer = null;
 	/** @type {Promise<void>[]} */
 	const fetchPromises = [];
 	const transactionId = getPaymentField("Transaction ID:");
@@ -95,6 +96,9 @@ export async function injectPaymentSummary() {
 
 		const effective = resolveEffectivePayer(primary, secondary, pageLevelPayer, transactionId, lastPayer);
 		if (effective) lastPayer = effective;
+		if (!eraInvoicePayer && isInvoiceItemTaxable(effective) && getNonTaxableInvoiceItem(effective)) {
+			eraInvoicePayer = effective;
+		}
 
 		// Prefetch therapist names only when the invoice item needs location-based tax logic
 		if (isInvoiceItemTaxable(effective)) {
@@ -135,16 +139,19 @@ export async function injectPaymentSummary() {
 			calculatePaymentBeforeTax(allocation, fullName, payerName);
 
 		// Group key keeps taxable rows together by location
-		const itemKey = formatInvoiceItem(payerName, locationTag);
+		const itemKey = formatEraInvoiceItem(payerName, eraInvoicePayer || pageLevelPayer, locationTag);
 
 		entries.push({
 			itemKey,
 			allocation,
 			invoiceRate: adjustedRate,
 			taxRate,
-			taxRateLabel,
+			 taxRateLabel,
 			taxRateQbCode,
 			payerName,
+			checkMemoPayer: normalizePayerName(payerName) === "direct"
+				? eraInvoicePayer || pageLevelPayer || undefined
+				: undefined,
 			locationTag
 		});
 	}
@@ -153,7 +160,7 @@ export async function injectPaymentSummary() {
 	/** @type {ItemTotalsMap} */
 	const itemTotalsMap = {};
 	for (const entry of entries) {
-		const { itemKey, allocation, invoiceRate, taxRate, taxRateLabel, taxRateQbCode, payerName } = entry;
+		const { itemKey, allocation, invoiceRate, taxRate, taxRateLabel, taxRateQbCode, payerName, checkMemoPayer } = entry;
 		if (!itemTotalsMap[itemKey]) {
 			itemTotalsMap[itemKey] = {
 				totalAllocation: 0,
@@ -161,7 +168,8 @@ export async function injectPaymentSummary() {
 				taxRate,
 				taxRateLabel,
 				taxRateQbCode,
-				payerName
+				payerName,
+				checkMemoPayer
 			};
 		}
 		itemTotalsMap[itemKey].totalAllocation += allocation;
@@ -235,7 +243,7 @@ export async function injectPaymentSummary() {
 	for (const [itemKey, data] of sortedEntries) {
 		const { totalAllocation, invoiceRate, taxRate, taxRateLabel, taxRateQbCode, payerName } = data;
 		const item = data.invoiceItem ?? itemKey;
-		const checknum = resolveCheckMemo(payerName, transactionId);
+		const checknum = resolveCheckMemo(data.checkMemoPayer ?? payerName, transactionId);
 		const paymentMethod = resolvePaymentMethod(payerName);
 		rowPaymentMethods.push(paymentMethod);
 

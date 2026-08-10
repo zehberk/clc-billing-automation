@@ -35,6 +35,9 @@ export async function runReceivePaymentAutomation() {
 	const history = await getCsvHistory();
 	const selectedInvoiceNumber = await waitForSettledCheckedInvoice();
 	const payment = findPayment(history.exports, selectedInvoiceNumber);
+	if (!payment) {
+		return { skipped: true, reason: "invoice-not-in-local-history", selectedInvoiceNumber };
+	}
 
 	if (payment.requiresReview) {
 		throw new Error(`Payment ${payment.paymentReference || "without a reference"} requires mapping review.`);
@@ -95,7 +98,7 @@ function waitForAutomationTargets() {
 /**
  * @param {CsvExportRecord[]} exports
  * @param {string} selectedInvoiceNumber
- * @returns {SavedPayment}
+ * @returns {SavedPayment | null}
  */
 function findPayment(exports, selectedInvoiceNumber) {
 	const payments = exports.slice().reverse().flatMap(record => (record.payments ?? []).slice().reverse());
@@ -104,7 +107,7 @@ function findPayment(exports, selectedInvoiceNumber) {
 	);
 	if (matches.length === 1) return matches[0];
 	if (matches.length > 1) throw new Error(`More than one saved payment contains invoice ${selectedInvoiceNumber}.`);
-	throw new Error(`No saved TherapyNotes payment contains invoice ${selectedInvoiceNumber}.`);
+	return null;
 }
 
 function waitForSettledCheckedInvoice() {

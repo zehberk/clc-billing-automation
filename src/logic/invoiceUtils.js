@@ -49,6 +49,23 @@ export function formatInvoiceItem(payerName, locationTag) {
 }
 
 /**
+ * Direct allocations on an ERA are untaxed and belong on the ERA payer's
+ * configured non-taxable item.
+ *
+ * @param {string | null | undefined} payerName
+ * @param {string | null | undefined} eraPayerName
+ * @param {string | null} locationTag
+ */
+export function formatEraInvoiceItem(payerName, eraPayerName, locationTag) {
+	if (normalizePayerName(payerName) === "direct") {
+		const nonTaxableItem = getNonTaxableInvoiceItem(eraPayerName);
+		if (nonTaxableItem) return nonTaxableItem;
+	}
+
+	return formatInvoiceItem(payerName, locationTag);
+}
+
+/**
  * @param {string | null | undefined} payerName
  * @param {string | null | undefined} transactionId
  */
