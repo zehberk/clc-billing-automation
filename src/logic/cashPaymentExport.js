@@ -5,8 +5,11 @@ import {
 	taxRatesReady
 } from "../data/constants.js";
 import { calculateQboTaxableLine } from "./taxUtils.js";
+import { recordCsvGenerated } from "../data/csvHistory.js";
 
 const PRODUCT_SERVICE = "Cash and Credit Card Receipts";
+const PAYMENT_METHOD = "Cash";
+const PAYMENT_MEMO = "TN CC";
 /** @typedef {{ date: string, amount: number }} CashPayment */
 const HEADERS = [
 	"*InvoiceNo", "*Customer", "*InvoiceDate", "*DueDate", "Terms", "Memo",
@@ -93,9 +96,22 @@ function showImportDialog() {
 			if (!LAS_CRUCES_TAX_RATE || !LAS_CRUCES_TAX_QB_CODE) {
 				throw new Error("The Las Cruces tax rate or QB Code is unavailable. Refresh TherapyNotes and try again.");
 			}
+			const exportFileName = `qbo-cash-payments-${startingNumber}.csv`;
+			const manifest = createCashPaymentManifest(payments, startingNumber);
+			const historyResult = await recordCsvGenerated({
+				id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+				generatedAt: new Date().toISOString(),
+				fileName: exportFileName,
+				originHref: window.location.href,
+				startingInvoiceNumber: startingNumber,
+				invoiceCount: manifest.invoices.length,
+				lineCount: payments.length,
+				...manifest
+			});
+			if (!historyResult.ok) throw new Error(historyResult.error || "Unable to save the CC payment details.");
 			downloadCsv(
 				buildCashPaymentCsv(payments, startingNumber, LAS_CRUCES_TAX_RATE, LAS_CRUCES_TAX_QB_CODE),
-				`qbo-cash-payments-${startingNumber}.csv`
+				exportFileName
 			);
 			fileName.textContent = `${payments.length} payment${payments.length === 1 ? "" : "s"} exported.`;
 		} catch (caught) {
@@ -144,13 +160,50 @@ export function buildCashPaymentCsv(payments, startingNumber, taxRate, taxRateQb
 	const orderedPayments = [...payments].sort((a, b) => getDateSortValue(a.date) - getDateSortValue(b.date));
 	orderedPayments.forEach((payment, index) => {
 		const net = calculateQboTaxableLine(payment.amount, taxRate);
+		const invoiceNumber = (first + BigInt(index)).toString().padStart(width, "0");
 		rows.push([
-			(first + BigInt(index)).toString().padStart(width, "0"), "Therapy Notes", payment.date, payment.date,
+			invoiceNumber, "Therapy Notes", payment.date, payment.date,
 			"Due Now", "", PRODUCT_SERVICE, "", "1", net.taxableAmount.toFixed(2),
 			net.taxableAmount.toFixed(2), "Y", taxRateQbCode, "", "", "", "", "", ""
 		]);
+		if (net.roundingAdjustment !== 0) {
+			rows.push([
+				invoiceNumber, "", "", "", "", "", PRODUCT_SERVICE, "Tax rounding adjustment", "1",
+				net.roundingAdjustment.toFixed(2), net.roundingAdjustment.toFixed(2), "N", "",
+				"", "", "", "", "", ""
+			]);
+		}
 	});
 	return rows.map(row => row.map(escapeCsv).join(",")).join("\r\n") + "\r\n";
+}
+
+/**
+ * @param {CashPayment[]} payments
+ * @param {string} startingNumber
+ */
+export function createCashPaymentManifest(payments, startingNumber) {
+	const first = BigInt(startingNumber);
+	const width = startingNumber.length;
+	const orderedPayments = [...payments].sort((a, b) => getDateSortValue(a.date) - getDateSortValue(b.date));
+	const invoices = orderedPayments.map((payment, index) => ({
+		invoiceNumber: (first + BigInt(index)).toString().padStart(width, "0"),
+		invoiceDate: payment.date,
+		sourceEraIndex: index,
+		lineCount: 1,
+		amount: payment.amount.toFixed(2)
+	}));
+	const savedPayments = orderedPayments.map((payment, index) => ({
+		paymentReference: PAYMENT_MEMO,
+		paymentDate: payment.date,
+		sourceEraIndex: index,
+		paymentType: PAYMENT_METHOD,
+		paymentMemo: PAYMENT_MEMO,
+		paymentAmount: payment.amount.toFixed(2),
+		invoiceSelections: [{ invoiceNumber: invoices[index].invoiceNumber, amount: payment.amount.toFixed(2) }],
+		isSplitAcrossInvoices: false,
+		requiresReview: false
+	}));
+	return { invoices, payments: savedPayments };
 }
 
 /** @param {string} value */

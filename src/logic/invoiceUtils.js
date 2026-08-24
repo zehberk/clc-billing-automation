@@ -79,6 +79,7 @@ export function resolveCheckMemo(payerName, transactionId) {
 /** @param {string | null | undefined} payerName */
 export function resolvePaymentMethod(payerName) {
 	if (getUseMedicareOverride()) return "Medicare";
+	if (getUseGehaOverride()) return "Managed Health Network";
 	const match = getInvoiceItemData(payerName);
 	return match?.paymentMethod || "Not Defined - Please Verify";
 }

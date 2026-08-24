@@ -124,13 +124,14 @@ waitForPreferredElement("#BillingTransactionsTableList", "#AdjustmentsTableList"
 		return;
 	}
 
-	if (MEDICARE_OVERRIDE_PAYERS.some(p => eraPayer?.includes(p))) {
-		setUseMedicareOverride(true);
-	}
+	// Recompute overrides for every payment. TherapyNotes can navigate between
+	// ERA details without reloading the content script, so a previous payer's
+	// override must not remain active on the next payment.
+	setUseMedicareOverride(MEDICARE_OVERRIDE_PAYERS.some(p => eraPayer?.includes(p)));
+	setUseGehaOverride(GEHA_OVERRIDE_PAYERS.some(p => eraPayer?.includes(p)));
 
-	if (GEHA_OVERRIDE_PAYERS.some(p => eraPayer?.includes(p))) {		
+	if (GEHA_OVERRIDE_PAYERS.some(p => eraPayer?.includes(p))) {
 		console.log("GEHA Payer found");
-		setUseGehaOverride(true);
 	}
 	Promise.all([taxRatesReady, sfTherapistsReady, invoiceItemsReady]).then(() => {
 		injectPaymentSummary();
