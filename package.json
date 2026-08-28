@@ -1,8 +1,9 @@
 {
 	"name": "era-extension",
-	"version": "1.5.1-build.6",
+	"version": "1.5.1-build.7",
 	"type": "module",
 	"scripts": {
+		"test": "node --test",
 		"build": "node scripts/bump-version.mjs build && npm run build:dist",
 		"build:dist": "vite build && node scripts/zip-dist.mjs",
 		"major": "node scripts/bump-version.mjs major && npm run build:dist",

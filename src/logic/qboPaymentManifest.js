@@ -1,3 +1,5 @@
+import { shouldContinueInvoice } from "./invoiceGrouping.js";
+
 /**
  * Builds the cross-browser reference data used to receive payments in QBO.
  * One TherapyNotes ERA is one payment, and invoiceSelections explicitly lists
@@ -13,7 +15,7 @@ export function createQboPaymentManifest(rows, startingInvoiceNumber) {
 	let currentInvoice;
 
 	for (const row of rows) {
-		if (!row.isInvoiceContinuation || !currentInvoice) {
+		if (!shouldContinueInvoice(row) || !currentInvoice) {
 			currentInvoice = {
 				invoiceNumber: (firstNumber + BigInt(invoices.length)).toString().padStart(numberWidth, "0"),
 				eraNumber: row.eraNumber ?? "",

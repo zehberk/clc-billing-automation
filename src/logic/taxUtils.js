@@ -97,24 +97,22 @@ export function calculateQboTaxableLine(grossAmount, taxRate) {
 			qboGrossCents,
 			differenceCents
 		};
+		// A rounding line may only add one cent. Never emit a negative line or
+		// conceal a larger discrepancy as tax rounding.
+		if (differenceCents < 0 || differenceCents > 1) continue;
 
 		if (
 			best == null ||
-			Math.abs(candidate.differenceCents) < Math.abs(best.differenceCents) ||
+			candidate.differenceCents < best.differenceCents ||
 			(
-				Math.abs(candidate.differenceCents) === Math.abs(best.differenceCents) &&
-				candidate.differenceCents >= 0 && best.differenceCents < 0
-			) ||
-			(
-				Math.abs(candidate.differenceCents) === Math.abs(best.differenceCents) &&
-				(candidate.differenceCents >= 0) === (best.differenceCents >= 0) &&
+				candidate.differenceCents === best.differenceCents &&
 				Math.abs(offset) < Math.abs(best.offset)
 			)
 		) {
 			best = { ...candidate, offset };
 		}
 	}
-	if (best == null) throw new Error("Unable to calculate a taxable invoice amount.");
+	if (best == null) throw new Error("Unable to calculate a taxable invoice amount without negative rounding.");
 
 	return {
 		taxableAmount: best.taxableCents / 100,

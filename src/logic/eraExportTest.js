@@ -4,6 +4,7 @@ import { mapInvoiceItemToQbo } from "./invoiceUtils.js";
 import { recordCsvGenerated } from "../data/csvHistory.js";
 import { createQboPaymentManifest } from "./qboPaymentManifest.js";
 import { getPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
+import { shouldContinueInvoice } from "./invoiceGrouping.js";
 
 const STORAGE_KEY = "clc-era-export-test-state-v2";
 const LOG_PREFIX = "[CLC][ERA Export Test]";
@@ -724,7 +725,7 @@ function buildQboInvoiceCsv(rows, startingInvoiceNumber) {
 	const outputRows = [QBO_CSV_HEADERS];
 
 	for (const row of rows) {
-		const isFirstInvoiceLine = !row.isInvoiceContinuation || currentInvoiceNumber === "";
+		const isFirstInvoiceLine = !shouldContinueInvoice(row) || currentInvoiceNumber === "";
 		if (isFirstInvoiceLine) {
 			currentInvoiceNumber = (firstNumber + nextOffset).toString().padStart(numberWidth, "0");
 			nextOffset += 1n;
