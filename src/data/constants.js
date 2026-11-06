@@ -4,6 +4,7 @@
 export const TAX_RATES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=0&single=true&output=csv";
 export const SF_THERAPISTS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=2094160848&single=true&output=csv";
 export const INVOICE_ITEMS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=1880971213&single=true&output=csv";
+export const PAYER_ALIASES_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTo8ZU3kY9uHNfBLhuMJdLMeRnBUoeqQeAOTL9BoDYRRYV2JGUfSELgVm3-P6JKDrelWTybLMu_Uzmq/pub?gid=1555880214&single=true&output=csv";
 
 export const EXCLUDED_PAYERS = new Set(["PGBA,LLC", "Carelon Behavioral Health, Inc."]);
 
@@ -39,7 +40,16 @@ export let PAYER_TO_INVOICE_ITEM_DATA = {};
 /** @type {{ [href: string]: string }} */
 export const therapistNameCache = {};
 
+/** @type {Map<string, string>} */
+export let PAYER_ALIASES = new Map();
+
+/** @param {Map<string, string>} aliases */
+export function setPayerAliases(aliases) {
+	PAYER_ALIASES = aliases;
+}
+
 export const STORAGE_KEYS = {
+	PAYER_ALIASES: "payerAliases-v1",
 	INVOICE_ITEMS: "invoiceItems-v3",
 	SF_THERAPISTS: "sfTherapists",
 	TAX_RATES: "taxRates-v2"

@@ -2,12 +2,15 @@ import {
 	TAX_RATES_CSV_URL,
 	SF_THERAPISTS_URL,
 	INVOICE_ITEMS_URL,
+	PAYER_ALIASES_URL,
+	setPayerAliases,
 	setTaxRateVars,
 	setInvoiceItems,
 	setSantaFeTherapists,
 	setLoadPromises,
 	STORAGE_KEYS
 } from "./constants.js";
+import { parsePayerAliases } from "../logic/payerUtils.js";
 import { getCache, setCache } from "./storage.js";
 
 /** @typedef {{ [key: string]: string | undefined }} CsvRow */
@@ -20,15 +23,19 @@ let sfTherapistsLoaded = () => {};
 /** @type {(value?: unknown) => void} */
 let invoiceItemsLoaded = () => {};
 
+/** @type {(value?: unknown) => void} */
+let payerAliasesLoaded = () => {};
+const payerAliasesReady = new Promise(resolve => payerAliasesLoaded = resolve);
+
 const taxRatesReady = new Promise(resolve => taxRatesLoaded = resolve);
 const sfTherapistsReady = new Promise(resolve => sfTherapistsLoaded = resolve);
 const invoiceItemsReady = new Promise(resolve => invoiceItemsLoaded = resolve);
 
 export const ALL_READY = Promise.all([
-	// these three were registered via setLoadPromises() above
 	taxRatesReady, 
 	sfTherapistsReady, 
-	invoiceItemsReady
+	invoiceItemsReady,
+	payerAliasesReady
 ]);
 
 // Register into shared constant state
@@ -76,6 +83,10 @@ loadCsvWithCache(INVOICE_ITEMS_URL, STORAGE_KEYS.INVOICE_ITEMS, (rows) => {
 	}
 	setInvoiceItems(parsed);
 }, invoiceItemsLoaded);
+
+loadCsvWithCache(PAYER_ALIASES_URL, STORAGE_KEYS.PAYER_ALIASES, (rows) => {
+	setPayerAliases(parsePayerAliases(rows));
+}, payerAliasesLoaded);
 
 /** @param {string} line */
 function parseCsvLine(line) {

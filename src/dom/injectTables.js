@@ -1,4 +1,5 @@
-import { therapistNameCache, USE_SECONDARY_PAYER  } from "../data/constants.js";
+import { resolveEffectivePayer } from "../logic/payerUtils.js";
+import { therapistNameCache  } from "../data/constants.js";
 import { resolveTherapistName, parseAllocation } from "../logic/rowUtils.js";
 import { normalizePayerName, formatInvoiceItem, formatEraInvoiceItem, resolveCheckMemo, resolvePaymentMethod, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
 import { calculatePaymentBeforeTax, calculateQboTaxableLine } from "../logic/taxUtils.js";
@@ -8,48 +9,6 @@ import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 /** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, taxRateQbCode: string, payerName: string, checkMemoPayer?: string, locationTag: string | null }} SummaryEntry */
 /** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, taxRateQbCode?: string, payerName: string, checkMemoPayer?: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
 /** @typedef {{ [itemKey: string]: ItemTotal }} ItemTotalsMap */
-
-/** @param {string | null | undefined} primary */
-function shouldForceSecondary(primary) {
-	if (!primary) return false;
-	const p = normalizePayerName(primary);
-	for (const val of USE_SECONDARY_PAYER) {
-		if (normalizePayerName(val) === p) return true;
-	}
-	return false;
-}
-
-/**
- * @param {string} primary
- * @param {string} secondary
- * @param {string | null} pageLevelPayer
- * @param {string | null | undefined} transactionId
- * @param {string | null} lastPayer
- */
-function resolveEffectivePayer(primary, secondary, pageLevelPayer, transactionId, lastPayer) {
-	let payerName = primary || lastPayer;
-
-	if (shouldForceSecondary(primary) && secondary) payerName = secondary;
-
-	const primaryMemo   = resolveCheckMemo(primary, transactionId);
-
-	if (
-		primary &&
-		pageLevelPayer &&
-		primary !== pageLevelPayer &&
-		primaryMemo &&
-		// pageLevelMemo &&
-		// primaryMemo !== pageLevelMemo &&
-		!pageLevelPayer.toLowerCase().includes(primaryMemo.toLowerCase()) &&
-		secondary &&
-		secondary !== "Not Set"
-		// secondaryMemo === pageLevelMemo
-	) {
-		payerName = secondary;
-	}
-
-	return payerName || lastPayer || "";
-}
 
 export async function injectPaymentSummary() {
 	if (document.querySelector("#QuickBooksSummaryTable")) return;
@@ -94,7 +53,7 @@ export async function injectPaymentSummary() {
 		const primary   = row.children[9]  instanceof HTMLElement ? row.children[9].innerText.trim()  : "";
 		const secondary = row.children[10] instanceof HTMLElement ? row.children[10].innerText.trim() : "";
 
-		const effective = resolveEffectivePayer(primary, secondary, pageLevelPayer, transactionId, lastPayer);
+		const effective = resolveEffectivePayer(primary, secondary, pageLevelPayer, lastPayer);
 		if (effective) lastPayer = effective;
 		if (!eraInvoicePayer && isInvoiceItemTaxable(effective) && getNonTaxableInvoiceItem(effective)) {
 			eraInvoicePayer = effective;
@@ -124,15 +83,16 @@ export async function injectPaymentSummary() {
 		const primary   = row.children[9]  instanceof HTMLElement ? row.children[9].innerText.trim()  : "";
 		const secondary = row.children[10] instanceof HTMLElement ? row.children[10].innerText.trim() : "";
 
-		let payerName = resolveEffectivePayer(primary, secondary, pageLevelPayer, transactionId, lastPayer);
+		let payerName = resolveEffectivePayer(primary, secondary, pageLevelPayer, lastPayer);
 		if (payerName) lastPayer = payerName;
+
+		// Track the therapist before skipping $0 rows: add-on rows (e.g. +90785)
+		// have no therapist link and belong to the preceding service row.
+		let fullName = resolveTherapistName(row, lastTherapist);
+		if (fullName) lastTherapist = fullName;
 
 		const allocation = parseAllocation(row);
 		if (!allocation) continue;
-
-		// Resolve therapist only for taxable invoice items that need a location tag
-		let fullName = resolveTherapistName(row, lastTherapist);
-		if (fullName) lastTherapist = fullName;
 
 		// Tax/location calc (this sets locationTag based on the invoice item's taxable flag)
 		let { adjustedRate, locationTag, taxRate, taxRateLabel, taxRateQbCode } =

@@ -1,6 +1,6 @@
 {
 	"name": "era-extension",
-	"version": "1.5.1-build.7",
+	"version": "1.5.1-build.9",
 	"type": "module",
 	"scripts": {
 		"test": "node --test",
