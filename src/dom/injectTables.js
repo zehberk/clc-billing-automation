@@ -10,9 +10,16 @@ import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 /** @typedef {import("../logic/paymentSummary.js").SummaryEntry} SummaryEntry */
 
 export async function injectPaymentSummary() {
-	if (document.querySelector("#QuickBooksSummaryTable")) return;
-
 	const paymentTable = document.querySelector("#BillingTransactionsTableList");
+
+	// A summary built before the payment rows rendered covers only the
+	// adjustments; replace it once the rows exist.
+	const existingSummary = document.querySelector("#QuickBooksSummaryTable");
+	if (existingSummary instanceof HTMLElement) {
+		if (existingSummary.dataset.clcHasPaymentRows === "true" || !paymentTable) return;
+		existingSummary.remove();
+		document.querySelectorAll(".qb-payment-warning").forEach(el => el.remove());
+	}
 	const adjustmentsTable = document.querySelector("#AdjustmentsTableList");
 	const anchorTable = paymentTable || adjustmentsTable;
 	if (!(anchorTable instanceof HTMLTableElement)) return;
@@ -72,6 +79,8 @@ export async function injectPaymentSummary() {
 	});
 
 	await Promise.all(fetchPromises);
+	// Another run may have rendered while therapist names were loading.
+	if (document.querySelector("#QuickBooksSummaryTable")) return;
 
 	// -------- Build entries with consistent effective payer + location --------
 	/** @type {SummaryEntry[]} */
@@ -121,6 +130,7 @@ export async function injectPaymentSummary() {
 	const summaryTable = document.createElement("table");
 	summaryTable.id = "QuickBooksSummaryTable";
 	summaryTable.className = "qb-summary-table";
+	summaryTable.dataset.clcHasPaymentRows = String(paymentTable instanceof HTMLTableElement);
 
 	const sortedEntries = Object.entries(itemTotalsMap).sort(([aKey, a], [bKey, b]) => {
 		const anchorComparison = (a.roundingFor ?? a.continuationFor ?? aKey).localeCompare(b.roundingFor ?? b.continuationFor ?? bKey);

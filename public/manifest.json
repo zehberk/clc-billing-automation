@@ -2,8 +2,8 @@
 	"author": "Zachary Berk",
 	"manifest_version": 3,
 	"name": "CLC Billing Automation",
-	"version": "1.5.1.10",
-	"version_name": "1.5.1-build.10",
+	"version": "1.5.1.11",
+	"version_name": "1.5.1-build.11",
 	"description": "Automates invoice processing from TherapyNotes to QuickBooks",
 	"permissions": [
 		"storage",

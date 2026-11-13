@@ -62,6 +62,12 @@ export function buildItemTotals(entries, adjustmentTotal, fallbackPayer) {
 
 	foldNegativeLines(itemTotalsMap);
 
+	// A refund offset by an equal adjustment nets to zero; QBO has nothing to
+	// invoice for that line.
+	for (const [key, line] of Object.entries(itemTotalsMap)) {
+		if (Math.round(line.totalAllocation * 100) === 0) delete itemTotalsMap[key];
+	}
+
 	// QBO calculates tax from the cent-rounded, aggregated taxable line. Match
 	// that behavior and use a separate untaxed line for any remaining penny.
 	for (const [itemKey, itemTotal] of Object.entries(itemTotalsMap)) {
@@ -133,11 +139,7 @@ export function foldNegativeLines(itemTotalsMap) {
 				setCents(positive, cents(positive) - absorbed);
 				remaining -= absorbed;
 			}
-			setCents(negative, -remaining);
-		}
-
-		for (const key of keys) {
-			if (cents(key) === 0) delete itemTotalsMap[key];
+			setCents(negative, 0 - remaining);
 		}
 	}
 }

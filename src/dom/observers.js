@@ -51,6 +51,20 @@ export function waitForPreferredElement(primarySelector, fallbackSelector, callb
 		if (fallbackTimer != null) clearTimeout(fallbackTimer);
 		observer.disconnect();
 		callback(el);
+		if (!el.matches(primarySelector)) watchForLatePrimary();
+	}
+
+	// A slow page can render the primary after the fallback was used; run the
+	// callback again so it can rebuild from the complete page.
+	function watchForLatePrimary() {
+		const lateObserver = new MutationObserver(() => {
+			const late = document.querySelector(primarySelector);
+			if (!late) return;
+			lateObserver.disconnect();
+			callback(late);
+		});
+		lateObserver.observe(document.body, { childList: true, subtree: true });
+		window.setTimeout(() => lateObserver.disconnect(), 30000);
 	}
 
 	function check() {
