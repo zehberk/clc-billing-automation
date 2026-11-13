@@ -1,14 +1,13 @@
 import { resolveEffectivePayer } from "../logic/payerUtils.js";
 import { therapistNameCache  } from "../data/constants.js";
 import { resolveTherapistName, parseAllocation } from "../logic/rowUtils.js";
-import { normalizePayerName, formatInvoiceItem, formatEraInvoiceItem, resolveCheckMemo, resolvePaymentMethod, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
-import { calculatePaymentBeforeTax, calculateQboTaxableLine } from "../logic/taxUtils.js";
+import { normalizePayerName, formatEraInvoiceItem, resolveCheckMemo, resolvePaymentMethod, isInvoiceItemTaxable, getNonTaxableInvoiceItem } from "../logic/invoiceUtils.js";
+import { calculatePaymentBeforeTax } from "../logic/taxUtils.js";
+import { buildItemTotals } from "../logic/paymentSummary.js";
 import { getPaymentField } from "../logic/paymentFields.js";
 import { setPaymentSummaryMethods } from "../data/paymentSummaryMetadata.js";
 
-/** @typedef {{ itemKey: string, allocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel: string, taxRateQbCode: string, payerName: string, checkMemoPayer?: string, locationTag: string | null }} SummaryEntry */
-/** @typedef {{ totalAllocation: number, invoiceRate: number, taxRate: number | null, taxRateLabel?: string, taxRateQbCode?: string, payerName: string, checkMemoPayer?: string, invoiceItem?: string, roundingFor?: string, continuationFor?: string }} ItemTotal */
-/** @typedef {{ [itemKey: string]: ItemTotal }} ItemTotalsMap */
+/** @typedef {import("../logic/paymentSummary.js").SummaryEntry} SummaryEntry */
 
 export async function injectPaymentSummary() {
 	if (document.querySelector("#QuickBooksSummaryTable")) return;
@@ -116,76 +115,7 @@ export async function injectPaymentSummary() {
 		});
 	}
 
-	// -------- Aggregate --------
-	/** @type {ItemTotalsMap} */
-	const itemTotalsMap = {};
-	for (const entry of entries) {
-		const { itemKey, allocation, invoiceRate, taxRate, taxRateLabel, taxRateQbCode, payerName, checkMemoPayer } = entry;
-		if (!itemTotalsMap[itemKey]) {
-			itemTotalsMap[itemKey] = {
-				totalAllocation: 0,
-				invoiceRate: 0,
-				taxRate,
-				taxRateLabel,
-				taxRateQbCode,
-				payerName,
-				checkMemoPayer
-			};
-		}
-		itemTotalsMap[itemKey].totalAllocation += allocation;
-		itemTotalsMap[itemKey].invoiceRate += invoiceRate;
-		itemTotalsMap[itemKey].taxRate = taxRate;
-		itemTotalsMap[itemKey].taxRateLabel = taxRateLabel;
-		itemTotalsMap[itemKey].taxRateQbCode = taxRateQbCode;
-	}
-
-	// QBO calculates tax from the cent-rounded, aggregated taxable line. Match
-	// that behavior and use a separate untaxed line for any remaining penny.
-	for (const [itemKey, itemTotal] of Object.entries(itemTotalsMap)) {
-		if (itemTotal.taxRate == null) continue;
-
-		const result = calculateQboTaxableLine(itemTotal.totalAllocation, itemTotal.taxRate);
-		itemTotal.invoiceRate = result.taxableAmount;
-		itemTotal.totalAllocation = result.qboGrossAmount;
-
-		if (result.roundingAdjustment !== 0) {
-			const roundingKey = `Tax Rounding Adjustment — ${itemKey}`;
-			itemTotalsMap[roundingKey] = {
-				totalAllocation: result.roundingAdjustment,
-				invoiceRate: result.roundingAdjustment,
-				taxRate: null,
-				payerName: itemTotal.payerName,
-				invoiceItem: getNonTaxableInvoiceItem(itemTotal.payerName) ?? `${itemKey} — NON-TAXABLE ITEM REQUIRED`,
-				roundingFor: itemKey
-			};
-		}
-	}
-
-	// -------- Adjustments --------
-	const adjustmentTotal = getAdjustmentTotal();
-	if (adjustmentTotal !== 0) {
-		// Adjustments are always untaxed. Prefer the resolved payer from a taxable
-		// allocation so its spreadsheet-configured non-taxable invoice item is
-		// used instead of the page-level payer shown in the payment header.
-		const taxableEntry = entries.find(entry =>
-			entry.taxRate != null && getNonTaxableInvoiceItem(entry.payerName)
-		);
-		const adjustmentPayer = taxableEntry?.payerName || lastPayer || pageLevelPayer || "Payment Adjustment";
-		const nonTaxableInvoiceItem = getNonTaxableInvoiceItem(adjustmentPayer);
-		const adjustmentItemKey = nonTaxableInvoiceItem || formatInvoiceItem(adjustmentPayer, null);
-		const adjustmentItem = itemTotalsMap[adjustmentItemKey] ?? {
-			totalAllocation: 0,
-			invoiceRate: 0,
-			taxRate: null,
-			payerName: adjustmentPayer,
-			invoiceItem: nonTaxableInvoiceItem,
-			continuationFor: taxableEntry?.itemKey
-		};
-		itemTotalsMap[adjustmentItemKey] = adjustmentItem;
-
-		adjustmentItem.totalAllocation += adjustmentTotal;
-		adjustmentItem.invoiceRate += adjustmentTotal;
-	}
+	const itemTotalsMap = buildItemTotals(entries, getAdjustmentTotal(), lastPayer || pageLevelPayer);
 
 	// -------- Render --------
 	const summaryTable = document.createElement("table");
@@ -259,7 +189,9 @@ export async function injectPaymentSummary() {
 		}
 	}
 
-	if (totalsMismatch) {
+	const hasNegativeLine = Object.values(itemTotalsMap).some(data => data.totalAllocation < 0);
+
+	if (totalsMismatch || hasNegativeLine) {
 		const banner = document.createElement("div");
 		banner.className = "qb-payment-warning";
 		banner.style.background = "#fff3cd";
@@ -270,8 +202,9 @@ export async function injectPaymentSummary() {
 		banner.style.fontSize = "15px";
 		banner.style.fontWeight = "600";
 	
-		banner.textContent =
-			"Payment Warning: Calculated allocations do not match the ERA payment amount. Please verify.";
+		banner.textContent = totalsMismatch
+			? "Payment Warning: Calculated allocations do not match the ERA payment amount. Please verify."
+			: "Payment Warning: A negative line could not be netted into a positive line. QuickBooks will reject it.";
 	
 		summaryTable.parentNode?.insertBefore(banner, summaryTable);
 	}	
