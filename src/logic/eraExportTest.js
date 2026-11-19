@@ -258,48 +258,53 @@ function waitForSummaryTable() {
 			return "";
 		};
 
-		const existing = document.querySelector("#QuickBooksSummaryTable");
-		if (existing instanceof HTMLTableElement) {
-			log("Summary table already present");
-			const warning = getSkipReason();
-			if (warning) {
-				resolve({ type: "skip", reason: warning });
-				return;
-			}
-			resolve({ type: "table", table: existing });
-			return;
-		}
+		/** @type {string} */
+		let provisionalWarning = "";
 
-		const initialWarning = getSkipReason();
-		if (initialWarning) {
-			log("Skip warning already present");
-			resolve({ type: "skip", reason: initialWarning });
+		/** @returns {WaitResult | null} */
+		const evaluate = () => {
+			const table = document.querySelector("#QuickBooksSummaryTable");
+			const warning = getSkipReason();
+
+			// A summary built before the payment rows rendered covers only the
+			// adjustments, so its mismatch warning is not final; wait for the
+			// rebuild from the complete page.
+			const isProvisional = table instanceof HTMLElement
+				&& table.dataset.clcHasPaymentRows === "false";
+			if (isProvisional && warning && document.querySelector(".qb-payment-warning")) {
+				provisionalWarning = warning;
+				return null;
+			}
+
+			if (warning) return { type: "skip", reason: warning };
+			if (table instanceof HTMLTableElement) return { type: "table", table };
+			return null;
+		};
+
+		const initial = evaluate();
+		if (initial) {
+			log("Summary result already present", { type: initial.type });
+			resolve(initial);
 			return;
 		}
 
 		log("Waiting for #QuickBooksSummaryTable");
 		const timeout = window.setTimeout(() => {
 			observer.disconnect();
+			if (provisionalWarning) {
+				resolve({ type: "skip", reason: provisionalWarning });
+				return;
+			}
 			reject(new Error(`Timed out after ${SUMMARY_TIMEOUT_MS}ms waiting for #QuickBooksSummaryTable`));
 		}, SUMMARY_TIMEOUT_MS);
 
 		const observer = new MutationObserver(() => {
-			const warning = getSkipReason();
-			if (warning) {
-				window.clearTimeout(timeout);
-				observer.disconnect();
-				log("Skip warning detected");
-				resolve({ type: "skip", reason: warning });
-				return;
-			}
-
-			const table = document.querySelector("#QuickBooksSummaryTable");
-			if (table instanceof HTMLTableElement) {
-				window.clearTimeout(timeout);
-				observer.disconnect();
-				log("Summary table detected");
-				resolve({ type: "table", table });
-			}
+			const result = evaluate();
+			if (!result) return;
+			window.clearTimeout(timeout);
+			observer.disconnect();
+			log("Summary result detected", { type: result.type });
+			resolve(result);
 		});
 
 		if (!document.body) {
